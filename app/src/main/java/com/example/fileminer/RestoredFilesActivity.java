@@ -19,20 +19,25 @@ import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import androidx.appcompat.app.AppCompatDelegate;
-
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.FileProvider;
-
+import androidx.appcompat.app.AppCompatDelegate;
 import androidx.appcompat.widget.Toolbar;
+import androidx.core.content.FileProvider;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.example.fileminer.databinding.ActivityRestoredFilesBinding;
+import com.google.android.gms.tasks.Task;
+import com.google.mlkit.vision.common.InputImage;
+import com.google.mlkit.vision.text.Text;
+import com.google.mlkit.vision.text.TextRecognition;
+import com.google.mlkit.vision.text.TextRecognizer;
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -60,28 +65,29 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
     private String currentSort = "time";
     private boolean isAscending = false;
     private String selectedSearchType = "Contains";
-
     private String fileType = "Photo";
-
-    // --- NEW ---
-    // Add a state variable for the filename content filter. Default to "Both".
     private String fileNameFilterType = "Both";
-
-    //-----------deleted
     List<File> deletedFiles;
     private static final int MAX_FILES = 500;
-
-    //--------hidden Files
     private final List<String> hiddenFilesList = new ArrayList<>();
+
+    // --- NEW ---
+    // State variable to control the OCR filter.
+    private boolean filterByTextInImage = false;
+    // ML Kit TextRecognizer instance
+    private TextRecognizer recognizer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
-        // This method remains unchanged.
         super.onCreate(savedInstanceState);
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         binding = ActivityRestoredFilesBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
+
+        // Initialize the TextRecognizer. This should be done once.
+        recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
+
         restoredFiles = new ArrayList<>();
         selectedFiles = new ArrayList<>();
         fullMediaItemList = new ArrayList<>();
@@ -121,7 +127,51 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         loadData();
     }
 
-    // This method remains unchanged.
+    private boolean isImageFile(String path) {
+        if (path == null) return false;
+        String lowerPath = path.toLowerCase(Locale.ROOT);
+        return lowerPath.endsWith(".jpg") || lowerPath.endsWith(".jpeg") || lowerPath.endsWith(".png") || lowerPath.endsWith(".bmp") || lowerPath.endsWith(".webp");
+    }
+
+    private void startOcrForImages() {
+        if ("Photo".equals(fileType)) {
+            Log.d("OCR_PROCESS", "Starting OCR scan for " + fullMediaItemList.size() + " items.");
+            for (MediaItem item : fullMediaItemList) {
+                if (isImageFile(item.path) && item.hasText == null) {
+                    processImageForText(item);
+                }
+            }
+        }
+    }
+
+    private void processImageForText(final MediaItem item) {
+        File file = new File(item.path);
+        if (!file.exists()) {
+            item.hasText = false;
+            return;
+        }
+
+        try {
+            InputImage image = InputImage.fromFilePath(this, Uri.fromFile(file));
+            Task<Text> result = recognizer.process(image)
+                    .addOnSuccessListener(visionText -> {
+                        item.hasText = !visionText.getText().trim().isEmpty();
+                        if (item.hasText) {
+                            Log.d("OCR_PROCESS", "Text FOUND in: " + item.path);
+                        }
+                    })
+                    .addOnFailureListener(e -> {
+                        item.hasText = false;
+                        Log.e("OCR_PROCESS", "Text recognition failed for: " + item.path, e);
+                    });
+
+        } catch (IOException e) {
+            item.hasText = false;
+            Log.e("OCR_PROCESS", "Failed to create InputImage for: " + item.path, e);
+        }
+    }
+
+
     private void loadData() {
         if (fileType == null) return;
         List<MediaItem> cachedFiles = FileCache.getInstance().get(fileType);
@@ -132,6 +182,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             fullMediaItemList.addAll(cachedFiles);
             adapter.notifyDataSetChanged();
             binding.progressBar.setVisibility(View.GONE);
+            startOcrForImages();
             return;
         }
         switch (fileType) {
@@ -162,19 +213,16 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         }
     }
 
-    // This method remains unchanged.
     private boolean isLightMode() {
         int mode = getResources().getConfiguration().uiMode & Configuration.UI_MODE_NIGHT_MASK;
         return mode != Configuration.UI_MODE_NIGHT_YES;
     }
 
-    // This method remains unchanged.
     private int dpToPx(int dp) {
         float density = getResources().getDisplayMetrics().density;
         return Math.round(dp * density);
     }
 
-    // This method remains unchanged.
     private void setupSelectionToolbar() {
         binding.selectionToolbar.inflateMenu(R.menu.selection_menu);
         binding.selectionToolbar.setTitleTextColor(getResources().getColor(android.R.color.black));
@@ -201,7 +249,6 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         });
     }
 
-    // All AsyncTask classes (LoadMediaFilesTask, etc.) remain unchanged.
     private static class LoadMediaFilesTask extends AsyncTask<Uri, Void, ArrayList<MediaItem>> {
         private final WeakReference<RestoredFilesActivity> activityRef;
 
@@ -235,7 +282,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                         String filePath = cursor.getString(0);
                         String displayName = cursor.getString(1);
                         if (filePath != null && !filePath.contains("/.trashed/") && !filePath.contains("/.recycle/") && !filePath.contains("/.trash/")
-                                && !filePath.contains("/_.trashed/") ) {
+                                && !filePath.contains("/_.trashed/")) {
                             mediaItems.add(new MediaItem(displayName, filePath));
                         }
                     }
@@ -259,6 +306,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 activity.sortFiles();
                 activity.adapter.notifyDataSetChanged();
                 activity.binding.progressBar.setVisibility(View.GONE);
+                activity.startOcrForImages();
             }
         }
     }
@@ -330,6 +378,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             }
         }
     }
+
     private static class LoadAllFilesTask extends AsyncTask<Void, Void, ArrayList<MediaItem>> {
         private final WeakReference<RestoredFilesActivity> activityRef;
 
@@ -390,7 +439,6 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         }
     }
 
-    // All file handling methods (startFileScan, showHiddenFiles, etc.) remain unchanged.
     private void startFileScan() {
         binding.progressBar.setVisibility(View.VISIBLE);
         binding.gridView.setVisibility(View.GONE);
@@ -435,6 +483,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
 
         }).start();
     }
+
     private void searchTrashedFiles(File dir, int depth, Set<String> seenPaths) {
         if (dir == null || !dir.exists() || !dir.isDirectory() || depth > 10 || deletedFiles.size() >= MAX_FILES)
             return;
@@ -454,11 +503,13 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             }
         }
     }
+
     private boolean isTrashFolder(File file) {
         String name = file.getName().toLowerCase(Locale.ROOT);
         return name.startsWith(".trashed-") || name.startsWith(".trashed") || name.equals(".recycle") || name.equals(".trash") || name.equals("_.trashed");
 
     }
+
     private boolean isDeletedFile(File file) {
         File parentDir = file.getParentFile();
         return parentDir != null && isTrashFolder(parentDir) || file.getName().startsWith(".trashed-");
@@ -497,6 +548,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             adapter.notifyDataSetChanged();
         }
     }
+
     private void scanHiddenFolders(File directory) {
         if (directory == null || !directory.exists() || !directory.canRead()) {
             Log.e("HiddenFiles", "Cannot access directory: " + (directory != null ? directory.getAbsolutePath() : "null"));
@@ -513,6 +565,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             }
         }
     }
+
     private void listHiddenFiles(File folder) {
         if (folder == null || !folder.exists() || !folder.canRead()) {
             Log.e("HiddenFiles", "Cannot read folder: " + (folder != null ? folder.getAbsolutePath() : "null"));
@@ -532,6 +585,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             }
         }
     }
+
     private boolean isPhotoOrVideo(File file) {
         if (file == null || !file.exists()) return false;
         String[] photoExtensions = {
@@ -539,7 +593,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         };
 
         String[] videoExtensions = {
-                ".mp4", ".mkv", ".avi", ".mov", ".flv" ,  ".pdf", ".ppt", ".pptx", ".odt", ".doc", ".docx", ".xls", ".xlsx"
+                ".mp4", ".mkv", ".avi", ".mov", ".flv", ".pdf", ".ppt", ".pptx", ".odt", ".doc", ".docx", ".xls", ".xlsx"
         };
 
         String fileName = file.getName().toLowerCase(Locale.ROOT);
@@ -574,6 +628,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             });
         }).start();
     }
+
     private void searchFiles(File dir) {
         try {
             if (dir != null && dir.isDirectory() && !isExcludedFolder(dir) && !dir.getName().startsWith(".")) {
@@ -593,6 +648,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             e.printStackTrace();
         }
     }
+
     private boolean isExcludedFolder(File file) {
         String path = file.getAbsolutePath();
         return path.contains("/WhatsApp/Media/.Statuses") ||
@@ -609,16 +665,18 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 path.contains(".recycle") || path.contains(".trash");
 
     }
+
     private boolean isTooSmall(File file) {
         return file.length() < 10 * 1024;
     }
+
     private boolean isExcludedFileType(File file) {
         String name = file.getName().toLowerCase(Locale.ROOT);
         return name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png") ||
                 name.endsWith(".mp4") || name.endsWith(".avi") || name.endsWith(".mkv") ||
                 name.endsWith(".pdf") || name.endsWith(".mp3") || name.endsWith(".wav") ||
                 name.endsWith(".odt") || name.endsWith(".pptx") || name.endsWith(".doc") ||
-                name.endsWith(".docx") ;
+                name.endsWith(".docx");
     }
 
     private void openFile(String filePath) {
@@ -634,6 +692,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             Log.e("RestoredFilesActivity", "No suitable app found to open this file", e);
         }
     }
+
     private String getMimeType(String filePath) {
         if (filePath.endsWith(".mp4") || filePath.endsWith(".mkv")) {
             return "video/*";
@@ -658,8 +717,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         AllFeaturesUtils.updateSelectionToolbar(restoredFiles, binding.selectionToolbar);
     }
 
-
-    // --- MODIFIED to handle the new filter ---
+    // --- MODIFIED to fix the compilation error ---
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
@@ -705,8 +763,10 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         } else if (id == R.id.action_filter) {
             loadFileList();
 
-            // The constructor for SearchBottomSheet is now updated to pass the new filter state.
-            // The listener is updated to receive the new filter choice.
+            // NOTE: The constructor call is reverted to its original signature to fix the compilation error.
+            // This means the 'filterByTextInImage' toggle cannot be controlled from the UI yet.
+            // To fully enable the feature, 'SearchBottomSheet.java' must be updated to accept the new boolean
+            // and its listener must be updated to return the user's choice for that flag.
             SearchBottomSheet bottomSheet = new SearchBottomSheet(
                     this,
                     selectedSearchType,
@@ -714,17 +774,18 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                     excludedFolders,
                     excludedExtensions,
                     fileType,
-                    fileNameFilterType, // Pass the current state to the sheet
+                    fileNameFilterType,
+                    // The 'filterByTextInImage' parameter and its corresponding lambda parameter are removed to match the original signature.
                     (searchType, caseSensitive, folders, extensions, newFileNameFilterType) -> {
-                        // This lambda is the implementation of the OnSearchOptionSelectedListener.
-                        // It receives all the updated choices from the bottom sheet.
+                        // This is the original listener signature.
                         selectedSearchType = searchType;
                         isCaseSensitive = caseSensitive;
                         excludedFolders = folders;
                         excludedExtensions = extensions;
-                        fileNameFilterType = newFileNameFilterType; // Store the new choice
+                        fileNameFilterType = newFileNameFilterType;
+                        // The 'filterByTextInImage' state is NOT updated from the sheet.
 
-                        // Immediately apply all filters with the new settings
+                        // Immediately apply all filters with the new settings.
                         filterFiles(currentQuery, excludedFolders, excludedExtensions);
                     }
             );
@@ -736,7 +797,6 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         return super.onOptionsItemSelected(item);
     }
 
-    // --- MODIFIED to apply the new filter ---
     private void filterFiles(String query, List<String> excludedFolders, List<String> excludedExtensions) {
         List<MediaItem> baseList;
         if (currentFilteredBaseList != null && !currentFilteredBaseList.isEmpty()) {
@@ -747,12 +807,22 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             baseList = new ArrayList<>(fullMediaItemList);
         }
 
-        // --- NEW LOGIC BLOCK ---
-        // This block runs the "filename content" filter first.
+        // 1. First, apply the "text in image" (OCR) filter if it's active
+        List<MediaItem> afterOcrFilterList = new ArrayList<>();
+        if (filterByTextInImage) {
+            for (MediaItem item : baseList) {
+                if (Boolean.TRUE.equals(item.hasText)) {
+                    afterOcrFilterList.add(item);
+                }
+            }
+        } else {
+            afterOcrFilterList.addAll(baseList);
+        }
+
+        // 2. Next, apply the "filename content" filter on the result of the OCR filter.
         List<MediaItem> nameFilteredList = new ArrayList<>();
         if (!"Both".equals(fileNameFilterType)) {
-            for (MediaItem item : baseList) {
-                // Regex checks if the filename contains any alphabetical characters.
+            for (MediaItem item : afterOcrFilterList) {
                 boolean hasAlphabeticalChars = item.name.matches(".*[a-zA-Z].*");
 
                 if ("With Text".equals(fileNameFilterType) && hasAlphabeticalChars) {
@@ -762,17 +832,15 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 }
             }
         } else {
-            // If the filter is "Both", we don't filter by name content, so we use the whole list.
-            nameFilteredList.addAll(baseList);
+            nameFilteredList.addAll(afterOcrFilterList);
         }
-        // --- END OF NEW LOGIC BLOCK ---
 
-        // The rest of the filtering is now performed on the result of our new logic.
+        // 3. Finally, perform the rest of the filtering on the result of the previous steps.
         AllFeaturesUtils.filterFiles(
                 query,
                 excludedFolders,
                 excludedExtensions,
-                nameFilteredList, // Use the new, pre-filtered list
+                nameFilteredList,
                 restoredFiles,
                 isCaseSensitive,
                 selectedSearchType,
@@ -783,7 +851,6 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         );
     }
 
-    // All other feature methods (sortFiles, delete, move, etc.) remain unchanged.
     private void sortFiles() {
         AllFeaturesUtils.sortFiles(restoredFiles, currentSort, isAscending);
     }
@@ -820,6 +887,8 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         File destFile = new File(trashDir, file.getName());
         return file.renameTo(destFile);
     }
+
+
 
     private void selectAllFiles(boolean select) {
         AllFeaturesUtils.selectAllFiles(fullMediaItemList, select);

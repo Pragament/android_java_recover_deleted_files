@@ -25,17 +25,19 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 import java.io.File;
 import java.util.ArrayList;
 
-public  class MediaItem {
+public class MediaItem {
     String name;
     String path;
     long size;
     long dateModified;
     private boolean isSelected = false;
 
+    // null = not yet processed, true = contains text, false = does not contain text
+    public Boolean hasText = null;
+
     MediaItem(String name, String path) {
         this.name = name;
         this.path = path;
-
         try {
             File file = new File(path);
             if (file.exists()) {
@@ -68,7 +70,7 @@ public  class MediaItem {
     public void setFilePath(String newPath) {
         this.path = newPath;
     }
- }
+}
 //------------- MediaAdapter class
 class MediaAdapter extends ArrayAdapter<MediaItem> {
     private boolean showPath = false;

@@ -38,4 +38,9 @@
     <string name="without_text_in_name">Show only files without text in name</string>
     <string name="show_both">Show both</string>
 
+    <string name="image_content_filter_title">Image Content Filter</string>
+    <string name="images_with_text">Images with text</string>
+    <string name="images_without_text">Images without text</string>
+    <string name="show_all_images">Show all images</string>
+
 </resources>

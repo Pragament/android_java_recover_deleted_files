@@ -1,159 +1,194 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.core.widget.NestedScrollView
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:padding="16dp">
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:padding="16dp"
+    android:background="?android:attr/windowBackground"
+    android:gravity="center_horizontal">
 
-    <LinearLayout
+    <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:text="@string/searchtype"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"
+        android:gravity="start"/>
 
-        <TextView
+    <RadioGroup
+        android:id="@+id/radioGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="16dp">
+
+        <RadioButton
+            android:id="@+id/radioContains"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Search Type"
-            android:textAppearance="?attr/textAppearanceTitleMedium"
-            android:textStyle="bold" />
-
-        <RadioGroup
-            android:id="@+id/radioGroup"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
-
-            <RadioButton
-                android:id="@+id/radioContains"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Contains"
-                android:checked="true"/>
-
-            <RadioButton
-                android:id="@+id/radioStartsWith"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Starts With" />
-
-            <RadioButton
-                android:id="@+id/radioEndsWith"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Ends With" />
-
-            <RadioButton
-                android:id="@+id/radioPath"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="File Path" />
-
-        </RadioGroup>
-
-        <TextView
-            android:layout_width="58dp"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="File Name Content"
-            android:textAppearance="?attr/textAppearanceTitleMedium"
-            android:textStyle="bold" />
-
-        <RadioGroup
-            android:id="@+id/radioGroupFileNameFilter"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp">
-
-            <RadioButton
-                android:id="@+id/radioWithText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Show only files with text in name" />
-
-            <RadioButton
-                android:id="@+id/radioWithoutText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Show only files without text in name" />
-
-            <RadioButton
-                android:id="@+id/radioBoth"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:checked="true"
-                android:text="Show both" />
-        </RadioGroup>
-
-        <TextView
+            android:text="@string/contains"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+        <RadioButton
+            android:id="@+id/radioStartsWith"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Case Sensitivity"
-            android:textAppearance="?attr/textAppearanceTitleMedium"
-            android:textStyle="bold" />
-
-        <RadioGroup
-            android:id="@+id/radioGroupCase"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="horizontal">
-
-            <RadioButton
-                android:id="@+id/radioCaseSensitive"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginEnd="16dp"
-                android:text="Case Sensitive" />
-
-            <RadioButton
-                android:id="@+id/radioCaseInsensitive"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Case Insensitive"
-                android:checked="true"/>
-
-        </RadioGroup>
-
-        <TextView
+            android:text="@string/startwith"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+        <RadioButton
+            android:id="@+id/radioEndsWith"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Exclude Folders"
-            android:textAppearance="?attr/textAppearanceTitleMedium"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/multiExcludeFolders"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/dropdown_background"
-            android:drawableEnd="@android:drawable/arrow_down_float"
-            android:padding="12dp"
-            android:text="Loading folders..."
-            android:gravity="center_vertical"/>
-
-        <TextView
+            android:text="@string/endwith"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+        <RadioButton
+            android:id="@+id/radioPath"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="Exclude Extension"
-            android:textAppearance="?attr/textAppearanceTitleMedium"
-            android:textStyle="bold" />
+            android:text="@string/filepath"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+    </RadioGroup>
 
-        <TextView
-            android:id="@+id/multiExcludeExtensions"
-            android:layout_width="match_parent"
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="12dp"
+        android:background="#CCCCCC" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/casesensitivity"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"
+        android:gravity="start"/>
+
+    <RadioGroup
+        android:id="@+id/radioGroupCase"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginBottom="16dp">
+
+        <RadioButton
+            android:id="@+id/radioCaseSensitive"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:layout_marginBottom="16dp"
-            android:background="@drawable/dropdown_background"
-            android:drawableEnd="@android:drawable/arrow_down_float"
-            android:padding="12dp"
-            android:text="Loading extensions..."
-            android:gravity="center_vertical"/>
+            android:text="@string/casesensitive"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+        <RadioButton
+            android:id="@+id/radioCaseInsensitive"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/caseinsensitive"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+    </RadioGroup>
 
-    </LinearLayout>
-</androidx.core.widget.NestedScrollView>
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="12dp"
+        android:background="#CCCCCC" />
+
+    <TextView
+        android:id="@+id/imageContentFilterTitle"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/image_content_filter_title"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"
+        android:gravity="start"/>
+
+    <RadioGroup
+        android:id="@+id/radioGroupImageContent"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:layout_marginBottom="16dp">
+
+        <RadioButton
+            android:id="@+id/radioImageWithText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/images_with_text"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+        <RadioButton
+            android:id="@+id/radioImageWithoutText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/images_without_text"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+        <RadioButton
+            android:id="@+id/radioImageBoth"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/show_all_images"
+            android:checked="true"
+            android:paddingEnd="16dp"
+            android:paddingStart="16dp" />
+    </RadioGroup>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="12dp"
+        android:background="#CCCCCC" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/excludefolders"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"
+        android:gravity="start" />
+
+    <TextView
+        android:id="@+id/multiExcludeFolders"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:drawableEndCompat="@drawable/ic_dropdown_arrow"
+        android:drawablePadding="8dp"
+        android:padding="12dp"
+        android:background="@drawable/input_background"
+        android:hint="@string/foledrbox"
+        android:textSize="16sp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginVertical="12dp"
+        android:background="#CCCCCC" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/excludeextension"
+        android:textSize="16sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp"
+        android:gravity="start" />
+
+    <TextView
+        android:id="@+id/multiExcludeExtensions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="@string/extensionbox"
+        android:textColor="@color/colorOnBackground"
+        android:padding="12dp"
+        android:background="@drawable/input_background"
+        app:drawableEndCompat="@drawable/ic_dropdown_arrow"
+        app:drawableTint="@color/colorAccent"
+        android:textSize="16sp" />
+</LinearLayout>
