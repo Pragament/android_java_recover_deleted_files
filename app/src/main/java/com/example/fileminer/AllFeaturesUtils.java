@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Color;
 import android.os.AsyncTask;
-import android.os.Build;
 import android.os.Environment;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -12,12 +11,10 @@ import android.view.View;
 import android.widget.BaseAdapter;
 import android.widget.EditText;
 import android.widget.GridView;
-import android.widget.ListView;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AlertDialog;
-import androidx.appcompat.widget.SearchView;
 import androidx.appcompat.widget.Toolbar;
 
 import java.io.File;
@@ -36,9 +33,34 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+
 public class AllFeaturesUtils {
 
-    // Static method to show/hide selection toolbar
+    // ✅ NEW: SharedPreferences keys for restore feature
+    private static final String PREF_TRASH = "trash_restore_pref";
+    private static final String KEY_MAP_PREFIX = "trash_map_"; // key = trash_map_<trashAbsolutePath>
+
+    // =========================================================
+    // ✅ NEW: Clean Deleted file name helper
+    // =========================================================
+    public static String getCleanDeletedName(String fileName) {
+        if (fileName == null) return "";
+
+        int underscoreIndex = fileName.indexOf("_");
+
+        // Example: "1705_photo.jpg" -> "photo.jpg"
+        if (underscoreIndex > 0) {
+            String prefix = fileName.substring(0, underscoreIndex);
+            if (prefix.matches("\\d+")) {
+                return fileName.substring(underscoreIndex + 1);
+            }
+        }
+        return fileName;
+    }
+
+    // =========================================================
+    // 1) Selection Toolbar (Show / Hide)
+    // =========================================================
     public static void updateSelectionToolbar(List<MediaItem> fileList, Toolbar selectionToolbar) {
         boolean anySelected = false;
         for (MediaItem item : fileList) {
@@ -50,6 +72,9 @@ public class AllFeaturesUtils {
         selectionToolbar.setVisibility(anySelected ? View.VISIBLE : View.GONE);
     }
 
+    // =========================================================
+    // 2) Sorting
+    // =========================================================
     public static void sortFiles(List<MediaItem> fileList, String sortType, boolean isAscending) {
         if ("name".equals(sortType)) {
             Collections.sort(fileList, (a, b) -> isAscending ?
@@ -69,6 +94,9 @@ public class AllFeaturesUtils {
         }
     }
 
+    // =========================================================
+    // 3) Filtering (Search)
+    // =========================================================
     public static void filterFiles(
             String query,
             List<String> excludedFolders,
@@ -79,7 +107,7 @@ public class AllFeaturesUtils {
             String selectedSearchType,
             TextView noResultsText,
             GridView listView,
-            MediaAdapter adapter,
+            BaseAdapter adapter,
             Runnable sortRunnable
     ) {
         if (query == null) query = "";
@@ -94,6 +122,8 @@ public class AllFeaturesUtils {
             if (item == null || item.name == null) continue;
 
             File file = new File(item.path);
+
+            // ✅ Skip non-existing files (important for deleted files)
             if (!file.exists()) continue;
 
             String fileName = item.name;
@@ -149,7 +179,10 @@ public class AllFeaturesUtils {
             }
         });
     }
-    //--------- excludedFolders
+
+    // =========================================================
+    // 4) Exclude Folder Helper
+    // =========================================================
     public static boolean shouldExclude(MediaItem item, List<String> excludedFolders) {
         if (excludedFolders == null || excludedFolders.isEmpty()) return false;
 
@@ -166,7 +199,9 @@ public class AllFeaturesUtils {
         return false;
     }
 
-    //--------------loadfilelist
+    // =========================================================
+    // 5) Load File Names (for UI list)
+    // =========================================================
     public static void loadFileList(List<MediaItem> restoredFiles, List<String> fileList) {
         fileList.clear();
         for (MediaItem item : restoredFiles) {
@@ -174,12 +209,14 @@ public class AllFeaturesUtils {
         }
     }
 
-    //--------------------Delet file and Files
+    // =========================================================
+    // 6) DELETE SINGLE FILE (FIXED)
+    // =========================================================
     public static void deleteFile(Context context,
                                   MediaItem item,
                                   List<MediaItem> restoredFiles,
                                   List<MediaItem> fullMediaItemList,
-                                  MediaAdapter adapter,
+                                  BaseAdapter adapter,
                                   Function<File, Boolean> moveToTrashFunc) {
 
         String fileType = getCurrentFileType(context);
@@ -188,23 +225,32 @@ public class AllFeaturesUtils {
                 .setTitle("Delete File")
                 .setMessage("Are you sure you want to delete this file?")
                 .setPositiveButton("Yes, Delete", (dialog, which) -> {
+
                     File file = new File(item.path);
                     boolean success;
 
+                    // ✅ Deleted category = permanent delete
                     if ("Deleted".equals(fileType)) {
-                        success = file.exists() && file.delete(); // permanently delete
+                        success = file.exists() && file.delete();
                     } else {
-                        success = file.exists() && moveToTrashFunc.apply(file); // move to trash
+                        // ✅ Other categories = move to trash
+                        success = file.exists() && moveToTrashFunc.apply(file);
                     }
 
                     if (success) {
-                        restoredFiles.remove(item);
-                        fullMediaItemList.removeIf(mediaItem -> mediaItem.path.equals(item.path));
-                        adapter.notifyDataSetChanged();
+
+                        // ✅ IMPORTANT FIX:
+                        // Remove from lists using path match (not object reference)
+                        removeByPath(restoredFiles, item.path);
+                        removeByPath(fullMediaItemList, item.path);
+
+                        // ✅ Refresh UI
+                        if (adapter != null) adapter.notifyDataSetChanged();
 
                         Toast.makeText(context,
                                 "Deleted".equals(fileType) ? "File permanently deleted" : "File moved to trash",
                                 Toast.LENGTH_SHORT).show();
+
                     } else {
                         Toast.makeText(context, "Failed to delete file", Toast.LENGTH_SHORT).show();
                     }
@@ -213,10 +259,13 @@ public class AllFeaturesUtils {
                 .show();
     }
 
+    // =========================================================
+    // 7) DELETE SELECTED FILES (FIXED)
+    // =========================================================
     public static void deleteSelectedFiles(Context context,
                                            List<MediaItem> restoredFiles,
                                            List<MediaItem> fullMediaItemList,
-                                           MediaAdapter adapter,
+                                           BaseAdapter adapter,
                                            Function<File, Boolean> moveToTrashFunc) {
 
         String fileType = getCurrentFileType(context);
@@ -225,44 +274,63 @@ public class AllFeaturesUtils {
                 .setTitle("Delete Selected Files")
                 .setMessage("Are you sure you want to delete the selected files?")
                 .setPositiveButton("Yes, Delete", (dialog, which) -> {
-                    ArrayList<MediaItem> itemsToDelete = new ArrayList<>();
 
-                    for (MediaItem item : restoredFiles) {
-                        if (item.isSelected()) {
-                            File file = new File(item.path);
-                            boolean success;
+                    ArrayList<String> deletedPaths = new ArrayList<>();
 
-                            if ("Deleted".equals(fileType)) {
-                                success = file.exists() && file.delete();
-                            } else {
-                                success = file.exists() && moveToTrashFunc.apply(file);
-                            }
+                    for (MediaItem item : new ArrayList<>(restoredFiles)) {
+                        if (!item.isSelected()) continue;
 
-                            if (success) {
-                                itemsToDelete.add(item);
-                                fullMediaItemList.removeIf(mediaItem -> mediaItem.path.equals(item.path));
-                            } else {
-                                Toast.makeText(context, "Failed to delete: " + item.name, Toast.LENGTH_SHORT).show();
-                            }
+                        File file = new File(item.path);
+                        boolean success;
+
+                        if ("Deleted".equals(fileType)) {
+                            success = file.exists() && file.delete();
+                        } else {
+                            success = file.exists() && moveToTrashFunc.apply(file);
+                        }
+
+                        if (success) {
+                            deletedPaths.add(item.path);
+                        } else {
+                            Toast.makeText(context, "Failed to delete: " + item.name, Toast.LENGTH_SHORT).show();
                         }
                     }
 
-                    if (!itemsToDelete.isEmpty()) {
-                        restoredFiles.removeAll(itemsToDelete);
-                        adapter.notifyDataSetChanged();
-                        Toast.makeText(context,
-                                "Deleted".equals(fileType) ? "Files permanently deleted!" : "Selected files moved to trash!",
-                                Toast.LENGTH_SHORT).show();
-                    } else {
-                        Toast.makeText(context, "No files were deleted.", Toast.LENGTH_SHORT).show();
+                    // ✅ Remove from both lists after deletion
+                    for (String path : deletedPaths) {
+                        removeByPath(restoredFiles, path);
+                        removeByPath(fullMediaItemList, path);
                     }
 
+                    if (adapter != null) adapter.notifyDataSetChanged();
+
+                    Toast.makeText(context,
+                            deletedPaths.isEmpty()
+                                    ? "No files were deleted."
+                                    : ("Deleted".equals(fileType) ? "Files permanently deleted!" : "Selected files moved to trash!"),
+                            Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    // Util to get fileType from intent
+    // =========================================================
+    // 8) Helper: Remove by Path (MOST IMPORTANT FIX)
+    // =========================================================
+    private static void removeByPath(List<MediaItem> list, String path) {
+        if (list == null || path == null) return;
+
+        for (int i = list.size() - 1; i >= 0; i--) {
+            MediaItem m = list.get(i);
+            if (m != null && path.equals(m.path)) {
+                list.remove(i);
+            }
+        }
+    }
+
+    // =========================================================
+    // 9) Intent Helper
+    // =========================================================
     private static String getCurrentFileType(Context context) {
         if (context instanceof RestoredFilesActivity) {
             Intent intent = ((RestoredFilesActivity) context).getIntent();
@@ -270,14 +338,19 @@ public class AllFeaturesUtils {
         }
         return "";
     }
-    //------------------ select all files
+
+    // =========================================================
+    // 10) Select All
+    // =========================================================
     public static void selectAllFiles(List<MediaItem> mediaItemList, boolean select) {
         for (MediaItem item : mediaItemList) {
             item.setSelected(select);
         }
     }
 
-    //-------------- Move Files
+    // =========================================================
+    // 11) Move Files (Your existing logic - unchanged)
+    // =========================================================
     public static void moveSelectedFiles(Context context, List<MediaItem> fullMediaItemList, Runnable onMoveComplete, Runnable loadFileList) {
         List<MediaItem> selectedItems = new ArrayList<>();
         for (MediaItem item : fullMediaItemList) {
@@ -400,70 +473,30 @@ public class AllFeaturesUtils {
         }
     }
 
-    // ---------------- search icon
-//    public static void setupSearch(Menu menu, Context context, FileFilterCallback callback) {
-//        MenuItem searchItem = menu.findItem(R.id.action_search);
-//
-//        if (searchItem != null) {
-//            // Use AppCompat SearchView for backward compatibility
-//            androidx.appcompat.widget.SearchView searchView = new androidx.appcompat.widget.SearchView(context);
-//            searchView.setQueryHint("Search Files...");
-//            searchView.setIconifiedByDefault(true); // Keeps search icon until expanded
-//
-//            // Search callback
-//            searchView.setOnQueryTextListener(new androidx.appcompat.widget.SearchView.OnQueryTextListener() {
-//                @Override
-//                public boolean onQueryTextSubmit(String query) {
-//                    callback.onFilter(query);
-//                    return true;
-//                }
-//
-//                @Override
-//                public boolean onQueryTextChange(String newText) {
-//                    callback.onFilter(newText);
-//                    return true;
-//                }
-//            });
-//
-//            // Attach SearchView to menu item
-//            searchItem.setActionView(searchView);
-//
-//            // Set showAsAction depending on Android version
-//            if (Build.VERSION.SDK_INT > Build.VERSION_CODES.JELLY_BEAN) {
-//                searchItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW);
-//            } else {
-//                // Older devices: collapseActionView doesn't work reliably
-//                searchItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-//            }
-//        }
-//
-//        // Optional: Ensure filter icon is visible
-//        MenuItem filterItem = menu.findItem(R.id.action_filter);
-//        if (filterItem != null) {
-//            filterItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
-//        }
-//    }
+    // =========================================================
+    // 12) Search Setup
+    // =========================================================
     public static void setupSearch(Menu menu, Context context, FileFilterCallback callback) {
         MenuItem searchItem = menu.findItem(R.id.action_search);
 
         if (searchItem != null) {
-            // Use AppCompat SearchView for compatibility
             androidx.appcompat.widget.SearchView searchView = new androidx.appcompat.widget.SearchView(context);
             searchView.setQueryHint("Search Files...");
             searchView.setIconifiedByDefault(true);
 
             EditText searchEditText = searchView.findViewById(androidx.appcompat.R.id.search_src_text);
             if (searchEditText != null) {
-                searchEditText.setTextColor(Color.WHITE);          // text color
-                searchEditText.setHintTextColor(Color.LTGRAY);     // hint color
+                searchEditText.setTextColor(Color.WHITE);
+                searchEditText.setHintTextColor(Color.LTGRAY);
             }
-            // Attach text listener
+
             searchView.setOnQueryTextListener(new androidx.appcompat.widget.SearchView.OnQueryTextListener() {
                 @Override
                 public boolean onQueryTextSubmit(String query) {
                     callback.onFilter(query);
                     return true;
                 }
+
                 @Override
                 public boolean onQueryTextChange(String newText) {
                     callback.onFilter(newText);
@@ -471,33 +504,29 @@ public class AllFeaturesUtils {
                 }
             });
 
-            // Attach SearchView to menu item
             searchItem.setActionView(searchView);
-
-            // Since minSdk >= 26, collapseActionView is safe on all versions
             searchItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS | MenuItem.SHOW_AS_ACTION_COLLAPSE_ACTION_VIEW);
         }
 
-        // Filter icon handling
         MenuItem filterItem = menu.findItem(R.id.action_filter);
         if (filterItem != null) {
             filterItem.setShowAsAction(MenuItem.SHOW_AS_ACTION_ALWAYS);
         }
     }
 
-
-
     public interface FileFilterCallback {
         void onFilter(String query);
     }
 
-    //--------------- hide and show duplicate
+    // =========================================================
+    // 13) Hide / Show Duplicates (unchanged)
+    // =========================================================
     public static void hideDuplicates(Context context,
                                       List<MediaItem> fullMediaItemList,
                                       List<MediaItem> currentFilteredBaseList,
                                       List<MediaItem> restoredFiles,
                                       Runnable sortFiles,
-                                      MediaAdapter adapter) {
+                                      BaseAdapter adapter) {
         new HideDuplicatesTask(context, fullMediaItemList, currentFilteredBaseList, restoredFiles, sortFiles, adapter).execute();
     }
 
@@ -507,7 +536,7 @@ public class AllFeaturesUtils {
                                           List<MediaItem> restoredFiles,
                                           List<MediaItem> duplicateList,
                                           Runnable sortFiles,
-                                          MediaAdapter adapter) {
+                                          BaseAdapter adapter) {
         new ShowOnlyDuplicatesTask(context, fullMediaItemList, currentFilteredBaseList, restoredFiles, duplicateList, sortFiles, adapter).execute();
     }
 
@@ -615,7 +644,6 @@ public class AllFeaturesUtils {
         protected List<MediaItem> doInBackground(Void... voids) {
             Map<Long, List<MediaItem>> sizeMap = new HashMap<>();
 
-            // Group files by file size
             for (MediaItem item : fullList) {
                 if (item != null && item.path != null) {
                     File file = new File(item.path);
@@ -629,7 +657,6 @@ public class AllFeaturesUtils {
             Map<String, MediaItem> hashToItem = new HashMap<>();
             List<MediaItem> duplicates = new ArrayList<>();
 
-            // From size groups, hash the files to detect true duplicates
             for (List<MediaItem> group : sizeMap.values()) {
                 if (group.size() > 1) {
                     for (MediaItem item : group) {
@@ -637,6 +664,7 @@ public class AllFeaturesUtils {
                         if (hash != null) {
                             int count = hashCountMap.getOrDefault(hash, 0);
                             hashCountMap.put(hash, count + 1);
+
                             if (count == 1) {
                                 duplicates.add(hashToItem.get(hash));
                                 duplicates.add(item);
@@ -667,13 +695,9 @@ public class AllFeaturesUtils {
             restoredList.clear();
             restoredList.addAll(result);
 
-            if (sortCallback != null) {
-                sortCallback.run();
-            }
+            if (sortCallback != null) sortCallback.run();
 
-            if (adapter != null) {
-                adapter.notifyDataSetChanged();
-            }
+            if (adapter != null) adapter.notifyDataSetChanged();
 
             Toast.makeText(context,
                     result.isEmpty() ? "No duplicate files found" : "Showing Only Duplicates",
@@ -681,4 +705,113 @@ public class AllFeaturesUtils {
         }
     }
 
+    // =========================================================
+    // ✅ NEW: Save mapping for restore
+    // =========================================================
+    private static void saveTrashMapping(Context context, String trashPath, String originalPath) {
+        context.getSharedPreferences(PREF_TRASH, Context.MODE_PRIVATE)
+                .edit()
+                .putString(KEY_MAP_PREFIX + trashPath, originalPath)
+                .apply();
+    }
+
+    // =========================================================
+    // ✅ NEW: Get original path back
+    // =========================================================
+    public static String getOriginalPathFromTrash(Context context, String trashPath) {
+        return context.getSharedPreferences(PREF_TRASH, Context.MODE_PRIVATE)
+                .getString(KEY_MAP_PREFIX + trashPath, null);
+    }
+
+    // =========================================================
+    // ✅ NEW: Remove mapping after restore
+    // =========================================================
+    private static void removeTrashMapping(Context context, String trashPath) {
+        context.getSharedPreferences(PREF_TRASH, Context.MODE_PRIVATE)
+                .edit()
+                .remove(KEY_MAP_PREFIX + trashPath)
+                .apply();
+    }
+
+    // =========================================================
+    // ✅ UPDATED: Common Trash Method (Use everywhere)
+    // =========================================================
+    public static boolean moveToTrash(Context context, File file) {
+        try {
+            File trashDir = new File(Environment.getExternalStorageDirectory(), "_.trashed");
+
+            if (!trashDir.exists()) {
+                trashDir.mkdirs();
+            }
+
+            String uniqueName = System.currentTimeMillis() + "_" + file.getName();
+            File destFile = new File(trashDir, uniqueName);
+
+            String originalPath = file.getAbsolutePath();
+
+            boolean moved = file.renameTo(destFile);
+
+            if (moved) {
+                saveTrashMapping(context, destFile.getAbsolutePath(), originalPath);
+            }
+
+            return moved;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    // =========================================================
+    // ✅ NEW: Restore Method
+    // =========================================================
+    public static boolean restoreFromTrash(Context context, MediaItem item) {
+        try {
+            if (item == null || item.path == null) return false;
+
+            File trashFile = new File(item.path);
+            if (!trashFile.exists()) return false;
+
+            String originalPath = item.originalPath;
+
+            if (originalPath == null) {
+                originalPath = getOriginalPathFromTrash(context, trashFile.getAbsolutePath());
+            }
+
+            if (originalPath == null) {
+                Toast.makeText(context, "Original path not found!", Toast.LENGTH_SHORT).show();
+                return false;
+            }
+
+            File originalFile = new File(originalPath);
+            File originalFolder = originalFile.getParentFile();
+
+            if (originalFolder != null && !originalFolder.exists()) {
+                originalFolder.mkdirs();
+            }
+
+            File restoreTarget = originalFile;
+            if (restoreTarget.exists()) {
+                String name = originalFile.getName();
+                String newName = System.currentTimeMillis() + "_" + name;
+                restoreTarget = new File(originalFolder, newName);
+            }
+
+            boolean restored = trashFile.renameTo(restoreTarget);
+
+            if (restored) {
+                removeTrashMapping(context, trashFile.getAbsolutePath());
+                Toast.makeText(context, "File restored successfully!", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(context, "Restore failed!", Toast.LENGTH_SHORT).show();
+            }
+
+            return restored;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
 }

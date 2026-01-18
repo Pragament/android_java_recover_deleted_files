@@ -1,80 +1,97 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:padding="8dp"
+    android:layout_width="170dp"
+    android:layout_height="wrap_content"
+    android:padding="10dp"
     android:layout_margin="8dp"
-    android:background="#00D084">
+    android:background="@drawable/item_bg_round">
 
-    <!--  Image Thumbnail with proper fill & crop -->
+    <!-- Thumbnail -->
     <ImageView
         android:id="@+id/mediaThumbnail"
         android:layout_width="match_parent"
-    android:layout_height="100dp"
-    android:src="@drawable/ic_file"
-    android:scaleType="centerCrop"
-    android:alpha="0.9"
-    android:layout_alignParentTop="true"
-    android:layout_centerHorizontal="true"/>
+        android:layout_height="120dp"
+        android:src="@drawable/ic_file"
+        android:scaleType="centerCrop"
+        android:layout_alignParentTop="true"
+        android:background="@drawable/thumb_bg_round" />
 
-    <!-- Checkbox Overlay (Top-right) -->
+    <!-- Checkbox -->
     <CheckBox
         android:id="@+id/checkBox"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
         android:layout_alignTop="@id/mediaThumbnail"
         android:layout_alignEnd="@id/mediaThumbnail"
         android:layout_margin="6dp"
-        android:buttonTint="@color/white"
-        android:background="@drawable/checkbox_bg"/>
+        android:buttonTint="@android:color/white"
+        android:background="@drawable/checkbox_bg" />
 
-    <!-- Share Button (Bottom-left overlay) -->
-    <ImageView
-        android:id="@+id/shareButton"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@drawable/ic_share"
-        android:contentDescription="@string/share"
+    <!-- Buttons Container -->
+    <LinearLayout
+        android:id="@+id/buttonRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignBottom="@id/mediaThumbnail"
+        android:layout_margin="6dp"
+        android:orientation="horizontal"
+        android:gravity="center"
         android:padding="4dp"
-        android:clickable="true"
-        android:focusable="true"
-        app:tint="@color/black"
-        android:background="@drawable/button_bg"
-        android:layout_alignBottom="@id/mediaThumbnail"
-        android:layout_alignStart="@id/mediaThumbnail"
-        android:layout_margin="6dp"/>
+        android:background="@drawable/button_row_bg">
 
-    <!-- Delete Button (Bottom-right overlay) -->
-    <ImageView
-        android:id="@+id/deleteButton"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:src="@android:drawable/ic_menu_delete"
-        android:contentDescription="@string/delete"
-        android:clickable="true"
-        android:focusable="true"
-        app:tint="@color/black"
-        android:background="@drawable/button_bg"
-        android:layout_alignBottom="@id/mediaThumbnail"
-        android:layout_alignEnd="@id/mediaThumbnail"
-        android:layout_margin="6dp"/>
+        <!-- Share -->
+        <ImageView
+            android:id="@+id/shareButton"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_margin="4dp"
+            android:src="@drawable/ic_share"
+            android:padding="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@drawable/button_bg"
+            app:tint="@android:color/black" />
 
-    <!-- File Name (Below Thumbnail) -->
+        <!-- Restore (Hidden by default) -->
+        <ImageView
+            android:id="@+id/restoreButton"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_margin="4dp"
+            android:src="@drawable/ic_restore"
+            android:padding="6dp"
+            android:visibility="gone"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@drawable/button_bg"
+            app:tint="@android:color/black" />
+
+        <!-- Delete -->
+        <ImageView
+            android:id="@+id/deleteButton"
+            android:layout_width="30dp"
+            android:layout_height="30dp"
+            android:layout_margin="4dp"
+            android:src="@android:drawable/ic_menu_delete"
+            android:padding="6dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:background="@drawable/button_bg"
+            app:tint="@android:color/black" />
+    </LinearLayout>
+
+    <!-- File Name -->
     <TextView
         android:id="@+id/mediaName"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center"
-        android:text="@string/filename"
-        android:textSize="14sp"
-        android:textColor="#FFFFFF"
-        android:maxLines="2"
-        android:ellipsize="marquee"
-        android:marqueeRepeatLimit="marquee_forever"
-        android:singleLine="true"
-        android:focusable="true"
-        android:focusableInTouchMode="true"
         android:layout_below="@id/mediaThumbnail"
         android:layout_marginTop="8dp"
-        android:layout_centerHorizontal="true"/>
+        android:text="File Name"
+        android:textSize="13sp"
+        android:textColor="@android:color/black"
+        android:maxLines="2"
+        android:ellipsize="end"
+        android:gravity="center" />
+
 </RelativeLayout>

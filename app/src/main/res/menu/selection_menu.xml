@@ -12,13 +12,19 @@
         android:id="@+id/deleteSelected"
         android:title="Delete"
         android:icon="@drawable/ic_delete"
-        app:showAsAction="ifRoom|withText"
-        />
+        app:showAsAction="ifRoom|withText" />
 
     <item
         android:id="@+id/moveSelected"
         android:title="Move"
         android:icon="@drawable/ic_move"
-        app:showAsAction="ifRoom|withText"
-        />
+        app:showAsAction="ifRoom|withText" />
+
+    <!-- ✅ FIXED -->
+    <item
+        android:id="@+id/restoreSelected"
+        android:title="Restore"
+        android:icon="@drawable/ic_restore"
+        app:showAsAction="ifRoom|withText" />
+
 </menu>

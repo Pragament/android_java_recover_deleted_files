@@ -1,21 +1,16 @@
 package com.example.fileminer;
 
-import android.app.Activity;
 import android.content.Intent;
 import android.content.pm.PackageManager;
-import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.StatFs;
-import android.provider.Settings;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 import androidx.lifecycle.ViewModelProvider;
 
 import com.example.fileminer.databinding.ActivityMain2Binding;
@@ -27,21 +22,12 @@ public class MainActivity2 extends AppCompatActivity {
     private ActivityMain2Binding binding;
     private StorageViewModel viewModel;
 
-    private static final int REQUEST_STORAGE_PERMISSION = 100;
-    private static final int REQUEST_MANAGE_STORAGE_PERMISSION = 101;
     private static final String[] FILE_TYPES = {"Photo", "Video", "Audio", "Document", "Deleted", "Hidden", "OtherFiles"};
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         super.onCreate(savedInstanceState);
-
-        // Check if storage permission is granted
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && !Environment.isExternalStorageManager()) {
-            startActivity(new Intent(this, PermissionUtils.class));
-            finish();
-            return;
-        }
 
         binding = ActivityMain2Binding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
@@ -50,14 +36,28 @@ public class MainActivity2 extends AppCompatActivity {
 
         restoreProgress(savedInstanceState);
 
-        // Check and request permission if needed
+        // ✅ NEW: Check permission properly (Android 6 → 14)
         if (PermissionUtils.checkStoragePermission(this)) {
             displayStorageInfo();
         } else {
-            PermissionUtils.requestStoragePermission(this);
+            // Open PermissionActivity (your launcher permission screen)
+            startActivity(new Intent(this, PermissionActivity.class));
+            finish();
+            return;
         }
 
         setupButtonListeners();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+
+        // ✅ NEW: Safety check when user returns from settings
+        if (!PermissionUtils.checkStoragePermission(this)) {
+            startActivity(new Intent(this, PermissionActivity.class));
+            finish();
+        }
     }
 
     private void restoreProgress(Bundle savedInstanceState) {
@@ -85,6 +85,8 @@ public class MainActivity2 extends AppCompatActivity {
     }
 
     private void displayStorageInfo() {
+        // ⚠️ NOTE: Environment.getExternalStorageDirectory() is deprecated but kept for your existing logic.
+        // We only ensure permission is granted before calling it.
         StatFs stat = new StatFs(Environment.getExternalStorageDirectory().getPath());
         long totalBytes = stat.getTotalBytes();
         long freeBytes = stat.getAvailableBytes();
@@ -93,7 +95,7 @@ public class MainActivity2 extends AppCompatActivity {
         int usedPercent = (int) ((usedBytes * 100) / totalBytes);
 
         binding.usedStorage.setText(String.format(Locale.getDefault(), "%.2f GB Used", bytesToGb(usedBytes)));
-        binding.freeStorage.setText(String.format(Locale.getDefault(),"%.2f GB Free", bytesToGb(freeBytes)));
+        binding.freeStorage.setText(String.format(Locale.getDefault(), "%.2f GB Free", bytesToGb(freeBytes)));
         animateProgress(usedPercent);
     }
 
@@ -127,25 +129,28 @@ public class MainActivity2 extends AppCompatActivity {
         outState.putInt("saved_progress", viewModel.lastProgress);
     }
 
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_MANAGE_STORAGE_PERMISSION && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (Environment.isExternalStorageManager()) {
-                displayStorageInfo();
-            } else {
-                showToast("Storage permission denied");
-            }
-        }
-    }
-
+    // ✅ NEW: Forward permission result to PermissionUtils (optional)
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQUEST_STORAGE_PERMISSION && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-            displayStorageInfo();
-        } else {
-            showToast("Storage permission denied");
+
+        // If user grants permission, refresh UI
+        if (requestCode == PermissionUtils.REQUEST_STORAGE_PERMISSION) {
+            boolean granted = true;
+            for (int result : grantResults) {
+                if (result != PackageManager.PERMISSION_GRANTED) {
+                    granted = false;
+                    break;
+                }
+            }
+
+            if (granted) {
+                displayStorageInfo();
+            } else {
+                showToast("Storage permission denied");
+                startActivity(new Intent(this, PermissionActivity.class));
+                finish();
+            }
         }
     }
 
