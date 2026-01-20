@@ -266,54 +266,88 @@ public class AllFeaturesUtils {
                                            List<MediaItem> restoredFiles,
                                            List<MediaItem> fullMediaItemList,
                                            BaseAdapter adapter,
-                                           Function<File, Boolean> moveToTrashFunc) {
+                                           java.util.function.Function<File, Boolean> moveToTrashFunc) {
 
         String fileType = getCurrentFileType(context);
 
-        new AlertDialog.Builder(context)
+        new androidx.appcompat.app.AlertDialog.Builder(context)
                 .setTitle("Delete Selected Files")
                 .setMessage("Are you sure you want to delete the selected files?")
                 .setPositiveButton("Yes, Delete", (dialog, which) -> {
 
                     ArrayList<String> deletedPaths = new ArrayList<>();
 
+                    // Create a copy to iterate safely
                     for (MediaItem item : new ArrayList<>(restoredFiles)) {
-                        if (!item.isSelected()) continue;
+                        if (item == null || !item.isSelected()) continue;
 
                         File file = new File(item.path);
-                        boolean success;
+                        boolean success = false;
 
                         if ("Deleted".equals(fileType)) {
-                            success = file.exists() && file.delete();
+                            // --- PERMANENT DELETE LOGIC ---
+
+                            // 1. Try standard Java delete (works for app-private folders)
+                            if (file.exists()) {
+                                success = file.delete();
+                            }
+
+                            // 2. If it fails (Scoped Storage), use MediaStore Resolver (works for public folders)
+                            if (!success && file.exists()) {
+                                try {
+                                    android.content.ContentResolver resolver = context.getContentResolver();
+                                    // Query for the file in the MediaStore
+                                    android.net.Uri uri = android.provider.MediaStore.Files.getContentUri("external");
+                                    String where = android.provider.MediaStore.MediaColumns.DATA + "=?";
+                                    String[] args = new String[]{file.getAbsolutePath()};
+
+                                    // This removes the file from the DB and the storage
+                                    int rows = resolver.delete(uri, where, args);
+                                    success = (rows > 0);
+                                } catch (Exception e) {
+                                    e.printStackTrace();
+                                }
+                            }
                         } else {
+                            // --- MOVE TO TRASH LOGIC ---
                             success = file.exists() && moveToTrashFunc.apply(file);
                         }
 
                         if (success) {
                             deletedPaths.add(item.path);
                         } else {
-                            Toast.makeText(context, "Failed to delete: " + item.name, Toast.LENGTH_SHORT).show();
+                            // If both methods fail, notify the user
+                            android.util.Log.e("DELETE_ERROR", "Failed to delete: " + item.path);
                         }
                     }
 
-                    // ✅ Remove from both lists after deletion
-                    for (String path : deletedPaths) {
-                        removeByPath(restoredFiles, path);
-                        removeByPath(fullMediaItemList, path);
+                    // Remove successfully deleted paths from the UI lists
+                    if (!deletedPaths.isEmpty()) {
+                        for (String path : deletedPaths) {
+                            removeByPath(restoredFiles, path);
+                            removeByPath(fullMediaItemList, path);
+                        }
+
+                        if (adapter != null) {
+                            adapter.notifyDataSetChanged();
+                        }
                     }
 
-                    if (adapter != null) adapter.notifyDataSetChanged();
+                    // Final summary Toast
+                    String message;
+                    if (deletedPaths.isEmpty()) {
+                        message = "Failed to delete files. Check permissions.";
+                    } else if ("Deleted".equals(fileType)) {
+                        message = deletedPaths.size() + " files permanently deleted!";
+                    } else {
+                        message = deletedPaths.size() + " files moved to trash!";
+                    }
 
-                    Toast.makeText(context,
-                            deletedPaths.isEmpty()
-                                    ? "No files were deleted."
-                                    : ("Deleted".equals(fileType) ? "Files permanently deleted!" : "Selected files moved to trash!"),
-                            Toast.LENGTH_SHORT).show();
+                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show();
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
-
     // =========================================================
     // 8) Helper: Remove by Path (MOST IMPORTANT FIX)
     // =========================================================
@@ -812,6 +846,48 @@ public class AllFeaturesUtils {
         } catch (Exception e) {
             e.printStackTrace();
             return false;
+        }
+    }
+    public static String getRealMimeType(File file) {
+        try (FileInputStream is = new FileInputStream(file)) {
+            byte[] b = new byte[4];
+            if (is.read(b) != -1) {
+                StringBuilder sb = new StringBuilder();
+                for (byte x : b) sb.append(String.format("%02X", x));
+                String hex = sb.toString();
+
+                if (hex.equals("89504E47")) return "image/png";
+                if (hex.startsWith("FFD8FF")) return "image/jpeg";
+                if (hex.equals("504B0304")) return "application/zip"; // APK/ZIP
+                if (hex.equals("25504446")) return "application/pdf";
+            }
+        } catch (Exception e) {
+            return "application/octet-stream"; // Generic binary data
+        }
+        return "application/octet-stream";
+    }
+    public static void walkDirectory(File dir, List<MediaItem> outputList, String fileType, RestoredFilesActivity.ProgressCallback callback) {
+        if (dir == null || !dir.exists()) return;
+
+        File[] files = dir.listFiles();
+        if (files == null) return; // This happens if permission is denied for a specific folder
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                // Optimization: Skip Android system folders to prevent "Main Thread" lag
+                if (!file.getName().equalsIgnoreCase("Android")) {
+                    walkDirectory(file, outputList, fileType, callback);
+                }
+            } else {
+                if (callback != null) callback.onUpdate(file.getAbsolutePath());
+
+                // Magic Byte Check
+                String mime = getRealMimeType(file);
+
+                // Add logic here to verify if file matches the requested category
+                // (e.g., if (fileType.equals("Deleted") || isMatching(mime, fileType)) ...
+                outputList.add(new MediaItem(file.getName(), file.getAbsolutePath()));
+            }
         }
     }
 }

@@ -23,6 +23,7 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy;
 
 import java.io.File;
 import java.util.ArrayList;
+import java.util.Locale;
 
 /**
  * MediaItem.java
@@ -38,11 +39,11 @@ public class MediaItem {
 
     public Boolean hasText = null;
 
-    // ✅ NEW: For restore feature
+    // ✅ For restore feature
     public String originalPath = null;    // where file was before deleting
     public boolean isDeletedItem = false; // true only for Deleted tab items
 
-    // ✅ NEW: clean display name (for Deleted tab)
+    // ✅ clean display name (for Deleted tab)
     public String displayName = null;   // name shown in UI (without timestamp)
     public String originalName = null;  // extracted original file name
 
@@ -50,9 +51,11 @@ public class MediaItem {
         this.name = name;
         this.path = path;
 
-        // ✅ NEW: Set clean display name for UI
-        this.originalName = getCleanDeletedName(name);
-        this.displayName = this.originalName;
+        // ✅ FIX: Do not always modify file name
+        // Clean name only if it matches timestamp pattern (1705_filename.jpg)
+        String cleaned = getCleanDeletedName(name);
+        this.originalName = cleaned;
+        this.displayName = cleaned;
 
         try {
             File file = new File(path);
@@ -71,7 +74,7 @@ public class MediaItem {
         }
     }
 
-    // ✅ NEW: Remove timestamp prefix like "1705_" and return clean name
+    // ✅ Remove timestamp prefix like "1705_" and return clean name
     public static String getCleanDeletedName(String fileName) {
         if (fileName == null) return "";
 
@@ -88,7 +91,7 @@ public class MediaItem {
         return fileName;
     }
 
-    // ✅ NEW: getters/setters (optional but clean)
+    // Optional getters/setters
     public String getOriginalPath() {
         return originalPath;
     }
@@ -131,6 +134,9 @@ public class MediaItem {
         private final ToolbarUpdateListener toolbarListener;
         private final FileDeleteListener fileDeleteListener;
 
+        // ✅ NEW: Selection Mode (checkbox visible only when enabled)
+        private boolean isSelectionMode = false;
+
         public MediaAdapter(Context context,
                             ArrayList<MediaItem> mediaItems,
                             ToolbarUpdateListener toolbarListener,
@@ -156,86 +162,152 @@ public class MediaItem {
             ImageView shareButton = listItem.findViewById(R.id.shareButton);
             ImageView deleteButton = listItem.findViewById(R.id.deleteButton);
 
-            // ✅ NEW: restore button
+            // ✅ restore button
             ImageView restoreButton = listItem.findViewById(R.id.restoreButton);
 
             CheckBox checkBox = listItem.findViewById(R.id.checkBox);
 
             MediaItem currentItem = getItem(position);
 
-            if (currentItem != null && currentItem.path != null) {
+            if (currentItem == null || currentItem.path == null) {
+                return listItem;
+            }
 
-                if (showPath) {
-                    File file = new File(currentItem.path);
-                    File parentFolderFile = file.getParentFile();
-                    if (parentFolderFile != null) {
-                        text1.setText(parentFolderFile.getName() + "/");
-                    } else {
-                        // ✅ FIX: show displayName if available
-                        text1.setText(currentItem.displayName != null ? currentItem.displayName : currentItem.name);
-                    }
+            // ------------------ Name display ------------------
+            if (showPath) {
+                File file = new File(currentItem.path);
+                File parentFolderFile = file.getParentFile();
+                if (parentFolderFile != null) {
+                    text1.setText(parentFolderFile.getName() + "/");
                 } else {
-                    // ✅ FIX: Show clean name in UI instead of timestamp name
                     text1.setText(currentItem.displayName != null ? currentItem.displayName : currentItem.name);
                 }
+            } else {
+                // ✅ show clean display name
+                text1.setText(currentItem.displayName != null ? currentItem.displayName : currentItem.name);
+            }
 
-                checkBox.setOnCheckedChangeListener(null);
-                checkBox.setChecked(currentItem.isSelected());
+            // ==================================================
+            // ✅ UPDATED: Checkbox Selection Mode Logic
+            // ==================================================
 
-                checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                    currentItem.setSelected(isChecked);
+            // Show checkbox only when selection mode is active
+            checkBox.setVisibility(isSelectionMode ? View.VISIBLE : View.GONE);
+
+            checkBox.setOnCheckedChangeListener(null);
+            checkBox.setChecked(currentItem.isSelected());
+
+            checkBox.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                currentItem.setSelected(isChecked);
+                if (toolbarListener != null) {
+                    toolbarListener.updateSelectionToolbar();
+                }
+                checkIfSelectionModeShouldEnd();
+            });
+
+            // ------------------ Thumbnail ------------------
+            loadThumbnail(imageView, currentItem);
+
+            // ------------------ Share ------------------
+            shareButton.setOnClickListener(v -> {
+                try {
+                    File file = new File(currentItem.path);
+                    Uri uri = FileProvider.getUriForFile(
+                            getContext(),
+                            getContext().getPackageName() + ".provider",
+                            file
+                    );
+
+                    Intent shareIntent = new Intent(Intent.ACTION_SEND);
+                    shareIntent.setType(getMimeType(currentItem.path));
+                    shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
+                    shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+
+                    getContext().startActivity(Intent.createChooser(shareIntent, "Share file via"));
+                } catch (Exception e) {
+                    Toast.makeText(getContext(), "Error sharing file", Toast.LENGTH_SHORT).show();
+                }
+            });
+
+            // ==================================================
+            // ✅ NEW: Long press activates selection mode
+            // ==================================================
+            listItem.setOnLongClickListener(v -> {
+                if (!isSelectionMode) {
+                    isSelectionMode = true;
+                    currentItem.setSelected(true);
+                    notifyDataSetChanged();
+
                     if (toolbarListener != null) {
                         toolbarListener.updateSelectionToolbar();
                     }
-                });
-
-                loadThumbnail(imageView, currentItem);
-
-                shareButton.setOnClickListener(v -> {
-                    try {
-                        File file = new File(currentItem.path);
-                        Uri uri = FileProvider.getUriForFile(
-                                getContext(),
-                                getContext().getPackageName() + ".provider",
-                                file
-                        );
-
-                        Intent shareIntent = new Intent(Intent.ACTION_SEND);
-                        shareIntent.setType(getMimeType(currentItem.path));
-                        shareIntent.putExtra(Intent.EXTRA_STREAM, uri);
-                        shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-
-                        getContext().startActivity(Intent.createChooser(shareIntent, "Share file via"));
-                    } catch (Exception e) {
-                        Toast.makeText(getContext(), "Error sharing file", Toast.LENGTH_SHORT).show();
-                    }
-                });
-
-                listItem.setOnClickListener(v -> openFile(currentItem));
-
-                deleteButton.setOnClickListener(v -> {
-                    if (fileDeleteListener != null) {
-                        fileDeleteListener.deleteFile(currentItem);
-                    }
-                });
-
-                // ✅ Restore button only for Deleted items
-                if (currentItem.isDeletedItem) {
-                    restoreButton.setVisibility(View.VISIBLE);
-
-                    restoreButton.setOnClickListener(v -> {
-                        if (fileDeleteListener != null) {
-                            fileDeleteListener.restoreFile(currentItem);
-                        }
-                    });
-
-                } else {
-                    restoreButton.setVisibility(View.GONE);
-                    restoreButton.setOnClickListener(null);
+                    return true;
                 }
+                return false;
+            });
+
+            // ==================================================
+            // ✅ UPDATED: Normal click behavior
+            // ==================================================
+            listItem.setOnClickListener(v -> {
+                if (isSelectionMode) {
+                    boolean newState = !currentItem.isSelected();
+                    currentItem.setSelected(newState);
+                    checkBox.setChecked(newState);
+
+                    if (toolbarListener != null) {
+                        toolbarListener.updateSelectionToolbar();
+                    }
+
+                    checkIfSelectionModeShouldEnd();
+                } else {
+                    openFile(currentItem);
+                }
+            });
+
+            // ------------------ Delete ------------------
+            deleteButton.setOnClickListener(v -> {
+                if (fileDeleteListener != null) {
+                    fileDeleteListener.deleteFile(currentItem);
+                }
+            });
+
+            // ==================================================
+            // ✅ Restore button (ONLY for Deleted tab items)
+            // ==================================================
+            if (currentItem.isDeletedItem) {
+                restoreButton.setVisibility(View.VISIBLE);
+
+                restoreButton.setOnClickListener(v -> {
+                    if (fileDeleteListener != null) {
+                        fileDeleteListener.restoreFile(currentItem);
+                    }
+                });
+
+            } else {
+                restoreButton.setVisibility(View.GONE);
+                restoreButton.setOnClickListener(null);
             }
 
             return listItem;
+        }
+
+        // ✅ NEW: auto exit selection mode if nothing selected
+        private void checkIfSelectionModeShouldEnd() {
+            boolean anySelected = false;
+
+            for (int i = 0; i < getCount(); i++) {
+                MediaItem item = getItem(i);
+                if (item != null && item.isSelected()) {
+                    anySelected = true;
+                    break;
+                }
+            }
+
+            if (!anySelected) {
+                isSelectionMode = false;
+                notifyDataSetChanged();
+            }
         }
 
         public void setShowPath(boolean showPath) {
@@ -244,7 +316,7 @@ public class MediaItem {
         }
 
         private void loadThumbnail(ImageView imageView, MediaItem currentItem) {
-            String filePath = currentItem.path.toLowerCase();
+            String filePath = currentItem.path.toLowerCase(Locale.ROOT);
 
             if (filePath.endsWith(".jpg") || filePath.endsWith(".png") || filePath.endsWith(".jpeg")
                     || filePath.endsWith(".webp") || filePath.endsWith(".gif") || filePath.endsWith(".bmp")
@@ -252,7 +324,11 @@ public class MediaItem {
 
                 Glide.with(getContext())
                         .load(new File(currentItem.path))
+                        .placeholder(R.drawable.ic_photo)
+                        .thumbnail(0.1f)
                         .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop()
+                        .override(200, 200)
                         .into(imageView);
 
             } else if (filePath.endsWith(".mp4") || filePath.endsWith(".mkv")) {
@@ -260,8 +336,11 @@ public class MediaItem {
                 Glide.with(getContext())
                         .asBitmap()
                         .load(Uri.fromFile(new File(currentItem.path)))
-                        .diskCacheStrategy(DiskCacheStrategy.ALL)
                         .placeholder(R.drawable.ic_video)
+                        .thumbnail(0.1f)
+                        .diskCacheStrategy(DiskCacheStrategy.ALL)
+                        .centerCrop()
+                        .override(200, 200)
                         .error(R.drawable.ic_video)
                         .into(imageView);
 
@@ -304,10 +383,14 @@ public class MediaItem {
         }
 
         private String getMimeType(String filePath) {
-            String extension = filePath.substring(filePath.lastIndexOf('.') + 1);
-            MimeTypeMap mime = MimeTypeMap.getSingleton();
-            String type = mime.getMimeTypeFromExtension(extension);
-            return type != null ? type : "*/*";
+            try {
+                String extension = filePath.substring(filePath.lastIndexOf('.') + 1);
+                MimeTypeMap mime = MimeTypeMap.getSingleton();
+                String type = mime.getMimeTypeFromExtension(extension);
+                return type != null ? type : "*/*";
+            } catch (Exception e) {
+                return "*/*";
+            }
         }
     }
 }

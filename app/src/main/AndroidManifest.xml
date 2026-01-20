@@ -62,7 +62,7 @@
         <activity
             android:name=".RestoredFilesActivity"
             android:exported="false"
-            android:theme="@style/Theme.A" />
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
 
         <!-- ✅ Launcher Activity -->
         <activity
@@ -83,6 +83,9 @@
             android:name=".MainActivity"
             android:exported="true"
             android:theme="@style/Theme.FileMiner" />
+
+        <activity android:name=".ManageCategoriesActivity" />
+
     </application>
 
 </manifest>

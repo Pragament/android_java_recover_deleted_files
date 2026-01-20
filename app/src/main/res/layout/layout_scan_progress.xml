@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    app:cardCornerRadius="28dp"
+    app:cardElevation="0dp"
+    app:contentPadding="24dp"
+    app:strokeWidth="0dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <View
+            android:layout_width="40dp"
+            android:layout_height="4dp"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="16dp"
+            android:background="#DDDDDD" />
+
+        <TextView
+            android:id="@+id/scanStatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Deep Scanning Storage..."
+            android:textColor="#202124"
+            android:textSize="20sp"
+            android:fontFamily="sans-serif-medium" />
+
+        <TextView
+            android:id="@+id/currentPathText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Initializing..."
+            android:textSize="12sp"
+            android:textColor="#5F6368"
+            android:singleLine="true"
+            android:ellipsize="marquee"
+            android:layout_marginTop="4dp"/>
+
+        <com.google.android.material.progressindicator.LinearProgressIndicator
+            android:id="@+id/scanProgressBar"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:indeterminate="true"
+            app:trackThickness="8dp"
+            app:trackCornerRadius="4dp"
+            app:indicatorColor="#1A73E8" />
+
+        <GridLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:columnCount="2"
+            android:rowCount="2">
+
+            <TextView android:id="@+id/countPhotos" android:layout_width="0dp" android:layout_columnWeight="1" android:text="Photos: 0" android:drawablePadding="8dp" android:padding="8dp"/>
+            <TextView android:id="@+id/countVideos" android:layout_width="0dp" android:layout_columnWeight="1" android:text="Videos: 0" android:drawablePadding="8dp" android:padding="8dp"/>
+            <TextView android:id="@+id/countDocs" android:layout_width="0dp" android:layout_columnWeight="1" android:text="Docs: 0" android:drawablePadding="8dp" android:padding="8dp"/>
+            <TextView android:id="@+id/countOther" android:layout_width="0dp" android:layout_columnWeight="1" android:text="Other: 0" android:drawablePadding="8dp" android:padding="8dp"/>
+        </GridLayout>
+
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>
