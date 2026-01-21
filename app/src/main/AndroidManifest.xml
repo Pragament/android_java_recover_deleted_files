@@ -3,16 +3,28 @@
     xmlns:tools="http://schemas.android.com/tools"
     package="com.example.fileminer">
 
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
+    <!-- ✅ Android 12 and below -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+
+    <!-- ✅ WRITE permission only needed for Android 9 and below -->
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
 
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+    <!-- ✅ Android 13+ granular media permissions -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_AUDIO" />
+
+    <!-- ✅ Android 11+ All Files Access (needed if app scans full storage) -->
+    <uses-permission
+        android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
 
+    <!-- ✅ Notifications permission (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-
 
     <application
         android:allowBackup="true"
@@ -50,26 +62,30 @@
         <activity
             android:name=".RestoredFilesActivity"
             android:exported="false"
-            android:theme="@style/Theme.A" />
+            android:theme="@style/Theme.MaterialComponents.DayNight.NoActionBar" />
 
+        <!-- ✅ Launcher Activity -->
         <activity
             android:name=".PermissionActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
         <activity
             android:name=".MainActivity2"
             android:exported="true"
             android:theme="@style/Theme.FileMiner" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:theme="@style/Theme.FileMiner">
-        </activity>
+            android:theme="@style/Theme.FileMiner" />
+
+        <activity android:name=".ManageCategoriesActivity" />
+
     </application>
 
 </manifest>

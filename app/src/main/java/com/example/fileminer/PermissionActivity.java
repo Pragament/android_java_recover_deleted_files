@@ -18,7 +18,6 @@ import androidx.appcompat.app.AppCompatDelegate;
 
 import com.example.fileminer.databinding.ActivityPermissionBinding;
 
-
 // Visual screen to guide user in granting "All Files Access"
 public class PermissionActivity extends Activity {
 
@@ -35,7 +34,19 @@ public class PermissionActivity extends Activity {
 
         setImageForMode();
         setStyledText();
-        binding.allowButton.setOnClickListener(v -> openPermissionSettings());
+
+        // ✅ NEW: If permission already granted, directly open app
+        if (PermissionUtils.checkStoragePermission(this)) {
+            openMainActivity();
+            return;
+        }
+
+        // ✅ UPDATED: Request permission properly based on Android version
+        binding.allowButton.setOnClickListener(v -> {
+            // Android 11+ => open All Files Access settings
+            // Android 10 and below => request runtime permissions
+            PermissionUtils.requestStoragePermission(PermissionActivity.this);
+        });
     }
 
     private void setImageForMode() {
@@ -55,6 +66,10 @@ public class PermissionActivity extends Activity {
         binding.permissionText.setText(spannable);
     }
 
+    /**
+     * ⚠️ OLD METHOD kept (not removed).
+     * But now we use PermissionUtils.requestStoragePermission() for better handling.
+     */
     private void openPermissionSettings() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try {
@@ -75,9 +90,16 @@ public class PermissionActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            if (Environment.isExternalStorageManager()) {
-                openMainActivity();
+
+        // ✅ NEW: After coming back from settings/permission popup, check permission again
+        if (PermissionUtils.checkStoragePermission(this)) {
+            openMainActivity();
+        } else {
+            // Optional: show message only for Android 11+ when user comes back without granting
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                if (!Environment.isExternalStorageManager()) {
+                    Toast.makeText(this, "Permission not granted yet", Toast.LENGTH_SHORT).show();
+                }
             }
         }
     }

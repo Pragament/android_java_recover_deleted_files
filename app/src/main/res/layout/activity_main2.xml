@@ -1,212 +1,90 @@
 <?xml version="1.0" encoding="utf-8"?>
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/colorSurface"
-    tools:context=".MainActivity2">
+    android:background="#F8F9FA">
 
-    <!-- App Title -->
-    <TextView
-        android:id="@+id/appTitle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textColor="@color/colorOnPrimary"
-        android:textSize="24sp"
-        android:textStyle="bold"
-        android:layout_centerHorizontal="true"
-        android:layout_marginTop="24dp" />
-
-    <!-- Circular Storage Progress -->
-    <RelativeLayout
-        android:id="@+id/relative"
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/storageCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_centerHorizontal="true"
-        android:layout_below="@id/appTitle"
-        android:layout_marginTop="16dp">
+        android:layout_margin="16dp"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="4dp"
+        app:strokeWidth="0dp">
 
-        <ProgressBar
-            android:id="@+id/storageProgress"
-            android:layout_width="200dp"
-            android:layout_height="200dp"
-            android:max="100"
-            android:progress="0"
-            android:indeterminate="false"
-            android:progressDrawable="@drawable/circular_progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_centerInParent="true" />
-
-        <TextView
-            android:id="@+id/progressText"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/storage"
-            android:textSize="22sp"
-            android:textColor="@color/colorOnPrimary"
-            android:textStyle="bold"
-            android:layout_centerInParent="true" />
-    </RelativeLayout>
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="20dp">
 
-    <LinearLayout
+            <RelativeLayout
+                android:layout_width="160dp"
+                android:layout_height="160dp">
+
+                <ProgressBar
+                    android:id="@+id/storageProgress"
+                    style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:progressDrawable="@drawable/circular_progress" />
+
+                <TextView
+                    android:id="@+id/progressText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_centerInParent="true"
+                    android:textColor="#1A73E8"
+                    android:textSize="24sp"
+                    android:textStyle="bold" />
+            </RelativeLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/usedStorage"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/freeStorage"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:textColor="#1A73E8"
+                    android:textStyle="bold" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- ✅ NEW: Dynamic RecyclerView Grid -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerCategories"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_below="@id/relative"
-        android:orientation="horizontal"
-        android:layout_marginTop="10dp"
-        android:paddingHorizontal="24dp"
-        android:gravity="center">
+        android:layout_below="@id/storageCard"
+        android:layout_above="@+id/bottomNav"
+        android:padding="12dp"
+        android:clipToPadding="false" />
 
-        <TextView
-            android:id="@+id/usedStorage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/usedstorage"
-            android:textColor="@color/colorOnPrimary"
-            android:textSize="18sp"
-            android:layout_weight="1" />
-        <TextView
-            android:id="@+id/freeStorage"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/freestorage"
-            android:textColor="@color/colorOnPrimary"
-            android:textSize="18sp"
-            android:layout_weight="1"
-            android:gravity="end" />
-    </LinearLayout>
-
-    <GridLayout
-        android:id="@+id/gridLayout"
+    <com.google.android.material.bottomnavigation.BottomNavigationView
+        android:id="@+id/bottomNav"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_below="@id/relative"
-        android:rowCount="2"
-        android:columnCount="2"
-        android:layout_marginTop="60dp"
-        android:padding="20dp">
-
-        <Button
-            android:id="@+id/btnPhoto"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_columnWeight="1"
-            android:layout_rowWeight="1"
-            android:minWidth="100dp"
-            android:minHeight="100dp"
-            android:text="@string/photo"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:drawablePadding="2dp"
-            android:drawableTop="@drawable/ic_photo"
-            android:backgroundTint="#00D084"
-            android:gravity="center"
-            android:layout_margin="6dp"/>
-
-        <Button
-            android:id="@+id/btnVideo"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_columnWeight="1"
-            android:layout_rowWeight="1"
-            android:minWidth="100dp"
-            android:minHeight="100dp"
-            android:text="@string/video"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:drawablePadding="2dp"
-            android:drawableTop="@drawable/ic_video"
-            android:backgroundTint="#00D084"
-            android:gravity="center"
-            android:layout_margin="6dp"/>
-
-        <Button
-            android:id="@+id/btnAudio"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_columnWeight="1"
-            android:layout_rowWeight="1"
-            android:minWidth="100dp"
-            android:minHeight="100dp"
-            android:text="@string/audio"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:drawablePadding="2dp"
-            android:drawableTop="@drawable/ic_audio"
-            android:backgroundTint="#00D084"
-            android:gravity="center"
-            android:layout_margin="6dp"/>
-
-        <Button
-            android:id="@+id/btnDocument"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_columnWeight="1"
-            android:layout_rowWeight="1"
-            android:minWidth="100dp"
-            android:minHeight="100dp"
-            android:text="@string/document"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:drawablePadding="2dp"
-            android:drawableTop="@drawable/ic_document"
-            android:backgroundTint="#00D084"
-            android:gravity="center"
-            android:layout_margin="6dp"/>
-    </GridLayout>
-
-    <LinearLayout
-        android:id="@+id/bottomMenu"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="72dp"
         android:layout_alignParentBottom="true"
-        android:orientation="horizontal"
-        android:weightSum="3"
-        android:padding="8dp"
-       >
-
-        <Button
-            android:id="@+id/btnRecycle"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="@string/deleteddata"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:drawableTop="@drawable/ic_recycle"
-            android:backgroundTint="#00D084"
-            android:gravity="center"
-            android:layout_margin="5dp" />
-
-        <Button
-            android:id="@+id/btnHidden"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:layout_weight="1"
-            android:text="@string/hiddendata"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:drawableTop="@drawable/ic_hidden"
-            android:backgroundTint="#00D084"
-            android:gravity="center"
-            android:layout_margin="5dp"/>
-
-        <Button
-            android:id="@+id/btnOtherFiles"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:text="@string/otherfiles"
-            android:layout_weight="1"
-            android:textColor="#FFFFFF"
-            android:textSize="14sp"
-            android:drawableTop="@drawable/ic_other_files"
-            android:backgroundTint="#00D084"
-            android:gravity="center"
-            android:layout_margin="5dp"/>
-
-    </LinearLayout>
+        android:background="#FFFFFF"
+        app:labelVisibilityMode="labeled"
+        app:menu="@menu/bottom_nav_menu" />
 
 </RelativeLayout>

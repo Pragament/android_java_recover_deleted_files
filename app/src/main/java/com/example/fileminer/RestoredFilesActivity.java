@@ -14,14 +14,11 @@ import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
-import android.widget.GridView;
-import android.widget.ProgressBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.app.AppCompatDelegate;
-import androidx.appcompat.widget.Toolbar;
 import androidx.core.content.FileProvider;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
@@ -29,7 +26,9 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.example.fileminer.databinding.ActivityRestoredFilesBinding;
+import com.example.fileminer.databinding.LayoutScanProgressBinding;
 import com.google.android.gms.tasks.Task;
+import com.google.android.material.bottomsheet.BottomSheetDialog;
 import com.google.mlkit.vision.common.InputImage;
 import com.google.mlkit.vision.text.Text;
 import com.google.mlkit.vision.text.TextRecognition;
@@ -37,19 +36,21 @@ import com.google.mlkit.vision.text.TextRecognizer;
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 public class RestoredFilesActivity extends AppCompatActivity implements ToolbarUpdateListener, FileDeleteListener {
 
     private ActivityRestoredFilesBinding binding;
 
-    private MediaAdapter adapter;
+    private MediaItem.MediaAdapter adapter;
     private ArrayList<MediaItem> restoredFiles;
     private ArrayList<MediaItem> selectedFiles;
     private List<String> fileList = new ArrayList<>();
@@ -65,38 +66,63 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
     private String currentSort = "time";
     private boolean isAscending = false;
     private String selectedSearchType = "Contains";
-    private String fileType = "Photo";
+    private String fileType = "Photo"; // (kept for existing logic compatibility)
     private String fileNameFilterType = "Both";
     List<File> deletedFiles;
     private static final int MAX_FILES = 500;
     private final List<String> hiddenFilesList = new ArrayList<>();
+    private int pCount = 0, vCount = 0, dCount = 0, oCount = 0;
 
-    // --- NEW ---
-    // State variable to control the OCR filter.
+    // ✅ NEW: Dynamic section support
+    private String sectionName = "";
+    private ArrayList<String> allowedExtensions = new ArrayList<>();
+
+    // --- OCR ---
     private boolean filterByTextInImage = false;
-    // ML Kit TextRecognizer instance
     private TextRecognizer recognizer;
+
+    // ✅ NEW: Background scan executor (for Deleted + OtherFiles)
+    private final ScanExecutor scanExecutor = new ScanExecutor();
+
+    // ✅ NEW: Prevent multiple scans at same time
+    private volatile boolean isScanRunning = false;
+
+    // ✅ NEW: Progress tracking
+    private volatile int scannedCount = 0;
+
+    // ==========================================================
+    // ✅ FIX 1: Cache Key helper (VERY IMPORTANT)
+    // ==========================================================
+    private String getCacheKey() {
+        if (sectionName != null && !sectionName.trim().isEmpty()) {
+            return "SECTION_" + sectionName.trim();
+        }
+        return fileType; // fallback
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM);
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
+
         binding = ActivityRestoredFilesBinding.inflate(getLayoutInflater());
         setContentView(binding.getRoot());
 
-        // Initialize the TextRecognizer. This should be done once.
         recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS);
 
         restoredFiles = new ArrayList<>();
         selectedFiles = new ArrayList<>();
         fullMediaItemList = new ArrayList<>();
-        adapter = new MediaAdapter(this, restoredFiles, this, this);
+
+        adapter = new MediaItem.MediaAdapter(this, restoredFiles, this, this);
         binding.gridView.setAdapter(adapter);
+
         binding.gridView.setOnItemClickListener((parent, view, position, id) -> {
             MediaItem item = restoredFiles.get(position);
             openFile(item.path);
         });
+
         View root = findViewById(R.id.main);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
@@ -119,18 +145,61 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         } else {
             root.setPadding(0, dpToPx(24), 0, 0);
         }
+
         setSupportActionBar(binding.mainToolbar);
         setupSelectionToolbar();
+
+        // ==========================================================
+        // ✅ UPDATED: Replace hardcoded fileType with sectionName + extensions
+        // ==========================================================
         Intent intent = getIntent();
+
+        // Old fileType (kept for compatibility)
         fileType = intent.getStringExtra("fileType");
+
+        // ✅ NEW: Dynamic section data
+        sectionName = intent.getStringExtra("sectionName");
+        allowedExtensions = (ArrayList<String>) intent.getSerializableExtra("extensions");
+
+        // fallback from prefs
+        if (allowedExtensions == null || allowedExtensions.isEmpty()) {
+            allowedExtensions = CategoryPrefsManager.getExtensionsForSection(this, sectionName);
+        }
+
         Log.d("RestoredFilesActivity", "Received fileType: " + fileType);
+        Log.d("RestoredFilesActivity", "Received sectionName: " + sectionName);
+        Log.d("RestoredFilesActivity", "Allowed extensions: " + allowedExtensions);
+
         loadData();
+        updateSelectionToolbar();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        // ✅ stop scan to avoid memory leaks/crashes
+        scanExecutor.shutdown();
+    }
+
+    // ==========================================================
+    // ✅ NEW: Dynamic Filter Method (REPLACES SWITCH)
+    // ==========================================================
+    private boolean isRelevantToCurrentCategory(String filePath) {
+        if (filePath == null) return false;
+        if (allowedExtensions == null || allowedExtensions.isEmpty()) return true;
+
+        int dot = filePath.lastIndexOf(".");
+        if (dot == -1) return false;
+
+        String extension = filePath.substring(dot).toLowerCase(Locale.ROOT);
+        return allowedExtensions.contains(extension);
     }
 
     private boolean isImageFile(String path) {
         if (path == null) return false;
         String lowerPath = path.toLowerCase(Locale.ROOT);
-        return lowerPath.endsWith(".jpg") || lowerPath.endsWith(".jpeg") || lowerPath.endsWith(".png") || lowerPath.endsWith(".bmp") || lowerPath.endsWith(".webp");
+        return lowerPath.endsWith(".jpg") || lowerPath.endsWith(".jpeg") || lowerPath.endsWith(".png")
+                || lowerPath.endsWith(".bmp") || lowerPath.endsWith(".webp");
     }
 
     private void startOcrForImages() {
@@ -171,45 +240,121 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         }
     }
 
-
     private void loadData() {
-        if (fileType == null) return;
-        List<MediaItem> cachedFiles = FileCache.getInstance().get(fileType);
+
+        // ==========================================================
+        // ✅ FIX 2: fileType == null check blocks custom sections
+        // ==========================================================
+        if ((fileType == null || fileType.trim().isEmpty()) &&
+                (sectionName == null || sectionName.trim().isEmpty())) {
+            return;
+        }
+
+        // ✅ Safety permission check (scan requires storage permission)
+        if (!PermissionUtils.checkStoragePermission(this)) {
+            Toast.makeText(this, "Storage permission required", Toast.LENGTH_SHORT).show();
+            finish();
+            return;
+        }
+
+        // ==========================================================
+        // ✅ FIX 1: Cache should use sectionName cache key
+        // ==========================================================
+        List<MediaItem> cachedFiles = FileCache.getInstance().get(getCacheKey());
         if (cachedFiles != null && !cachedFiles.isEmpty()) {
             restoredFiles.clear();
             restoredFiles.addAll(cachedFiles);
+
             fullMediaItemList.clear();
             fullMediaItemList.addAll(cachedFiles);
+
             adapter.notifyDataSetChanged();
             binding.progressBar.setVisibility(View.GONE);
             startOcrForImages();
             return;
         }
+
+        // ==========================================================
+        // ✅ FIX 3: Dynamic sections should not depend on hardcoded switch
+        // ==========================================================
+        if (sectionName != null && !sectionName.trim().isEmpty()
+                && !"Deleted".equals(fileType)
+                && !"Hidden".equals(fileType)
+                && !"OtherFiles".equals(fileType)) {
+
+            // Load all files and filter using allowedExtensions
+            new LoadAllFilesTask(this).execute();
+            return;
+        }
+
+        // Switchboard for different file categories
         switch (fileType) {
             case "Photo":
-                new LoadMediaFilesTask(this).execute(MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
+                binding.progressBar.setVisibility(View.VISIBLE);
+
+                java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newSingleThreadExecutor();
+                executor.execute(() -> {
+                    ArrayList<MediaItem> photos = fetchPhotosFromDevice();
+
+                    runOnUiThread(() -> {
+                        fullMediaItemList.clear();
+                        fullMediaItemList.addAll(photos);
+                        restoredFiles.clear();
+                        restoredFiles.addAll(photos);
+
+                        adapter.notifyDataSetChanged();
+                        binding.progressBar.setVisibility(View.GONE);
+
+                        if (photos.isEmpty()) {
+                            Toast.makeText(this, "No photos found", Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                });
                 break;
+
             case "Video":
                 new LoadMediaFilesTask(this).execute(MediaStore.Video.Media.EXTERNAL_CONTENT_URI);
                 break;
+
             case "Audio":
                 new LoadMediaFilesTask(this).execute(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI);
                 break;
+
             case "Document":
                 new LoadDocumentFilesTask(this).execute();
                 break;
+
             case "Deleted":
-                startFileScan();
+                clearCurrentData();
+                performHybridScan();
                 break;
+
+            case "OtherFiles":
+                clearCurrentData();
+                performHybridScan();
+                break;
+
             case "Hidden":
                 showHiddenFiles();
                 break;
-            case "OtherFiles":
-                fetchOtherFiles();
-                break;
+
             default:
                 new LoadAllFilesTask(this).execute();
                 break;
+        }
+    }
+
+    private void clearCurrentData() {
+        pCount = 0;
+        vCount = 0;
+        dCount = 0;
+        oCount = 0;
+
+        restoredFiles.clear();
+        fullMediaItemList.clear();
+
+        if (adapter != null) {
+            adapter.notifyDataSetChanged();
         }
     }
 
@@ -225,9 +370,12 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
 
     private void setupSelectionToolbar() {
         binding.selectionToolbar.inflateMenu(R.menu.selection_menu);
+        updateRestoreMenuVisibility();
+
         binding.selectionToolbar.setTitleTextColor(getResources().getColor(android.R.color.black));
         binding.selectionToolbar.setOnMenuItemClickListener(item -> {
             int id = item.getItemId();
+
             if (id == R.id.deleteSelected) {
                 binding.selectionToolbar.setTitle("Delete Files");
                 deleteSelectedFiles();
@@ -235,6 +383,10 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             } else if (id == R.id.moveSelected) {
                 binding.selectionToolbar.setTitle("Move Files");
                 moveSelectedFiles();
+                return true;
+            } else if (id == R.id.restoreSelected) {
+                binding.selectionToolbar.setTitle("Restore Files");
+                restoreSelectedFiles();
                 return true;
             } else if (id == R.id.selectAll) {
                 boolean selectAll = !item.isChecked();
@@ -248,6 +400,8 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             return false;
         });
     }
+
+    // ------------------------ AsyncTask (MediaStore) remains same ------------------------
 
     private static class LoadMediaFilesTask extends AsyncTask<Uri, Void, ArrayList<MediaItem>> {
         private final WeakReference<RestoredFilesActivity> activityRef;
@@ -281,9 +435,14 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                     while (cursor.moveToNext()) {
                         String filePath = cursor.getString(0);
                         String displayName = cursor.getString(1);
-                        if (filePath != null && !filePath.contains("/.trashed/") && !filePath.contains("/.recycle/") && !filePath.contains("/.trash/")
-                                && !filePath.contains("/_.trashed/")) {
-                            mediaItems.add(new MediaItem(displayName, filePath));
+
+                        if (filePath != null && !filePath.contains("/.trashed/") && !filePath.contains("/.recycle/")
+                                && !filePath.contains("/.trash/") && !filePath.contains("/_.trashed/")) {
+
+                            // ✅ NEW: Apply dynamic extension filter
+                            if (activity.isRelevantToCurrentCategory(filePath)) {
+                                mediaItems.add(new MediaItem(displayName, filePath));
+                            }
                         }
                     }
                 }
@@ -298,11 +457,18 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         protected void onPostExecute(ArrayList<MediaItem> mediaItems) {
             RestoredFilesActivity activity = activityRef.get();
             if (activity != null && !activity.isFinishing()) {
-                FileCache.getInstance().put(activity.fileType, mediaItems);
+
+                // ==========================================================
+                // ✅ FIX 1: Cache should use sectionName cache key
+                // ==========================================================
+                FileCache.getInstance().put(activity.getCacheKey(), mediaItems);
+
                 activity.restoredFiles.clear();
                 activity.restoredFiles.addAll(mediaItems);
+
                 activity.fullMediaItemList.clear();
                 activity.fullMediaItemList.addAll(mediaItems);
+
                 activity.sortFiles();
                 activity.adapter.notifyDataSetChanged();
                 activity.binding.progressBar.setVisibility(View.GONE);
@@ -351,9 +517,13 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                     while (cursor.moveToNext()) {
                         String filePath = cursor.getString(0);
                         String displayName = cursor.getString(1);
-                        if (filePath != null && !filePath.contains("/.trashed/") && !filePath.contains("/.recycle/") && !filePath.contains("/.trash/")
-                                && !filePath.contains("/_.trashed/")) {
-                            mediaItems.add(new MediaItem(displayName, filePath));
+                        if (filePath != null && !filePath.contains("/.trashed/") && !filePath.contains("/.recycle/")
+                                && !filePath.contains("/.trash/") && !filePath.contains("/_.trashed/")) {
+
+                            // ✅ NEW: Apply dynamic extension filter
+                            if (activity.isRelevantToCurrentCategory(filePath)) {
+                                mediaItems.add(new MediaItem(displayName, filePath));
+                            }
                         }
                     }
                 }
@@ -370,8 +540,10 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             if (activity != null && !activity.isFinishing()) {
                 activity.restoredFiles.clear();
                 activity.restoredFiles.addAll(mediaItems);
+
                 activity.fullMediaItemList.clear();
                 activity.fullMediaItemList.addAll(mediaItems);
+
                 activity.sortFiles();
                 activity.adapter.notifyDataSetChanged();
                 activity.binding.progressBar.setVisibility(View.GONE);
@@ -411,9 +583,13 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                     while (cursor.moveToNext()) {
                         String filePath = cursor.getString(0);
                         String displayName = cursor.getString(1);
-                        if (filePath != null && !filePath.contains("/.trashed/") && !filePath.contains("/.recycle/") && !filePath.contains("/.trash/")
-                                && !filePath.contains("/_.trashed/")) {
-                            mediaItems.add(new MediaItem(displayName, filePath));
+                        if (filePath != null && !filePath.contains("/.trashed/") && !filePath.contains("/.recycle/")
+                                && !filePath.contains("/.trash/") && !filePath.contains("/_.trashed/")) {
+
+                            // ✅ NEW: Apply dynamic extension filter
+                            if (activity.isRelevantToCurrentCategory(filePath)) {
+                                mediaItems.add(new MediaItem(displayName, filePath));
+                            }
                         }
                     }
                 }
@@ -430,8 +606,10 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             if (activity != null && !activity.isFinishing()) {
                 activity.restoredFiles.clear();
                 activity.restoredFiles.addAll(mediaItems);
+
                 activity.fullMediaItemList.clear();
                 activity.fullMediaItemList.addAll(mediaItems);
+
                 activity.sortFiles();
                 activity.adapter.notifyDataSetChanged();
                 activity.binding.progressBar.setVisibility(View.GONE);
@@ -439,26 +617,30 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         }
     }
 
+    // ------------------------ Deleted Files ------------------------
+
     private void startFileScan() {
         binding.progressBar.setVisibility(View.VISIBLE);
         binding.gridView.setVisibility(View.GONE);
 
         new Thread(() -> {
+            File trashDir = new File(Environment.getExternalStorageDirectory(), "_.trashed");
             deletedFiles = new ArrayList<>();
-            Set<String> seenPaths = new HashSet<>();
 
-            File rootDir = Environment.getExternalStorageDirectory();
-            searchTrashedFiles(rootDir, 0, seenPaths);
+            if (trashDir.exists() && trashDir.isDirectory()) {
+                File[] files = trashDir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        if (f != null && f.isFile()) {
+                            deletedFiles.add(f);
+                        }
+                    }
+                }
+            }
 
             runOnUiThread(() -> {
                 binding.progressBar.setVisibility(View.GONE);
                 binding.gridView.setVisibility(View.VISIBLE);
-
-                if (deletedFiles.isEmpty()) {
-                    Toast.makeText(this, "No deleted files found!", Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this, deletedFiles.size() + " deleted files found!", Toast.LENGTH_SHORT).show();
-                }
 
                 restoredFiles.clear();
                 fullMediaItemList.clear();
@@ -466,54 +648,41 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 ArrayList<MediaItem> itemsToCache = new ArrayList<>();
 
                 for (File file : deletedFiles) {
+
+                    // ✅ NEW: apply dynamic filter if needed
+                    if (!isRelevantToCurrentCategory(file.getAbsolutePath())) {
+                        continue;
+                    }
+
                     MediaItem item = new MediaItem(file.getName(), file.getAbsolutePath());
+
+                    item.isDeletedItem = true;
+                    item.displayName = AllFeaturesUtils.getCleanDeletedName(item.name);
+                    item.originalPath = AllFeaturesUtils.getOriginalPathFromTrash(this, file.getAbsolutePath());
+
                     restoredFiles.add(item);
                     fullMediaItemList.add(item);
                     itemsToCache.add(item);
                 }
 
-                if (!itemsToCache.isEmpty()) {
-                    FileCache.getInstance().put(fileType, itemsToCache);
-                }
+                // ==========================================================
+                // ✅ FIX 1: Cache should use sectionName cache key
+                // ==========================================================
+                FileCache.getInstance().put(getCacheKey(), itemsToCache);
 
-                sortFiles();
-                adapter = new MediaAdapter(this, restoredFiles, RestoredFilesActivity.this, this);
-                binding.gridView.setAdapter(adapter);
+                adapter.notifyDataSetChanged();
+
+                if (deletedFiles.isEmpty()) {
+                    Toast.makeText(this, "No deleted files found!", Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, deletedFiles.size() + " deleted files found!", Toast.LENGTH_SHORT).show();
+                }
             });
 
         }).start();
     }
 
-    private void searchTrashedFiles(File dir, int depth, Set<String> seenPaths) {
-        if (dir == null || !dir.exists() || !dir.isDirectory() || depth > 10 || deletedFiles.size() >= MAX_FILES)
-            return;
-
-        File[] files = dir.listFiles();
-        if (files == null) return;
-
-        for (File file : files) {
-            String absPath = file.getAbsolutePath();
-            if (seenPaths.contains(absPath)) continue;
-            seenPaths.add(absPath);
-
-            if (file.isDirectory()) {
-                searchTrashedFiles(file, depth + 1, seenPaths);
-            } else if (isDeletedFile(file)) {
-                deletedFiles.add(file);
-            }
-        }
-    }
-
-    private boolean isTrashFolder(File file) {
-        String name = file.getName().toLowerCase(Locale.ROOT);
-        return name.startsWith(".trashed-") || name.startsWith(".trashed") || name.equals(".recycle") || name.equals(".trash") || name.equals("_.trashed");
-
-    }
-
-    private boolean isDeletedFile(File file) {
-        File parentDir = file.getParentFile();
-        return parentDir != null && isTrashFolder(parentDir) || file.getName().startsWith(".trashed-");
-    }
+    // ------------------------ Hidden Files ------------------------
 
     private void showHiddenFiles() {
         File directory = Environment.getExternalStorageDirectory();
@@ -528,6 +697,12 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             restoredFiles.clear();
             for (String path : hiddenFilesList) {
                 File file = new File(path);
+
+                // ✅ NEW: Apply dynamic extension filter
+                if (!isRelevantToCurrentCategory(file.getAbsolutePath())) {
+                    continue;
+                }
+
                 String name = file.getName();
                 long size = file.length();
                 long modified = file.lastModified();
@@ -538,12 +713,13 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
 
                 restoredFiles.add(item);
             }
+
             fullMediaItemList.clear();
             fullMediaItemList.addAll(restoredFiles);
 
             sortFiles();
 
-            adapter = new MediaAdapter(this, restoredFiles, this, this);
+            adapter = new MediaItem.MediaAdapter(this, restoredFiles, this, this);
             binding.gridView.setAdapter(adapter);
             adapter.notifyDataSetChanged();
         }
@@ -588,13 +764,9 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
 
     private boolean isPhotoOrVideo(File file) {
         if (file == null || !file.exists()) return false;
-        String[] photoExtensions = {
-                ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"
-        };
 
-        String[] videoExtensions = {
-                ".mp4", ".mkv", ".avi", ".mov", ".flv", ".pdf", ".ppt", ".pptx", ".odt", ".doc", ".docx", ".xls", ".xlsx"
-        };
+        String[] photoExtensions = {".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".tiff"};
+        String[] videoExtensions = {".mp4", ".mkv", ".avi", ".mov", ".flv"};
 
         String fileName = file.getName().toLowerCase(Locale.ROOT);
 
@@ -607,39 +779,67 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
         return false;
     }
 
+    // ------------------------ Other Files ------------------------
+
     private void fetchOtherFiles() {
+        if (isScanRunning) {
+            Toast.makeText(this, "Scan already running...", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        isScanRunning = true;
+
         binding.progressBar.setVisibility(View.VISIBLE);
         binding.gridView.setVisibility(View.GONE);
 
-        new Thread(() -> {
+        scanExecutor.run(() -> {
             File directory = new File("/storage/emulated/0/");
-            restoredFiles = new ArrayList<>();
-            fullMediaItemList = new ArrayList<>();
+            ArrayList<MediaItem> tempList = new ArrayList<>();
 
-            searchFiles(directory);
-            sortFiles();
+            searchFiles(directory, tempList);
 
-            fullMediaItemList.addAll(restoredFiles);
             runOnUiThread(() -> {
-                adapter = new MediaAdapter(this, restoredFiles, this, this);
+                isScanRunning = false;
+
+                restoredFiles.clear();
+                restoredFiles.addAll(tempList);
+
+                fullMediaItemList.clear();
+                fullMediaItemList.addAll(tempList);
+
+                sortFiles();
+
+                adapter = new MediaItem.MediaAdapter(this, restoredFiles, this, this);
                 binding.gridView.setAdapter(adapter);
+
                 binding.progressBar.setVisibility(View.GONE);
                 binding.gridView.setVisibility(View.VISIBLE);
             });
-        }).start();
+        });
     }
 
-    private void searchFiles(File dir) {
+    private void searchFiles(File dir, ArrayList<MediaItem> output) {
+        if (Thread.currentThread().isInterrupted()) return;
+        if (output.size() >= MAX_FILES) return;
+
         try {
             if (dir != null && dir.isDirectory() && !isExcludedFolder(dir) && !dir.getName().startsWith(".")) {
                 File[] files = dir.listFiles();
                 if (files != null) {
                     for (File file : files) {
+                        if (Thread.currentThread().isInterrupted()) return;
+                        if (output.size() >= MAX_FILES) return;
+
                         if (file.isFile() && !file.getName().startsWith(".") &&
                                 !isExcludedFileType(file) && !isTooSmall(file)) {
-                            restoredFiles.add(new MediaItem(file.getName(), file.getAbsolutePath()));
+
+                            // ✅ UPDATED: Apply dynamic extension filter
+                            if (isRelevantToCurrentCategory(file.getAbsolutePath())) {
+                                output.add(new MediaItem(file.getName(), file.getAbsolutePath()));
+                            }
+
                         } else if (file.isDirectory() && file.canRead()) {
-                            searchFiles(file);
+                            searchFiles(file, output);
                         }
                     }
                 }
@@ -651,6 +851,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
 
     private boolean isExcludedFolder(File file) {
         String path = file.getAbsolutePath();
+
         return path.contains("/WhatsApp/Media/.Statuses") ||
                 path.contains("/Android/media/com.whatsapp/WhatsApp/Media/.Statuses") ||
                 path.contains("/Android/data/") ||
@@ -661,9 +862,11 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 path.contains("/Instagram/") ||
                 path.contains("/MIUI/") ||
                 path.contains("/com.miui.backup/") ||
-                path.contains("/Logs/") || path.contains("_.trashed") || path.contains(".trashed") ||
-                path.contains(".recycle") || path.contains(".trash");
-
+                path.contains("/Logs/") ||
+                path.contains("_.trashed") ||
+                path.contains(".trashed") ||
+                path.contains(".recycle") ||
+                path.contains(".trash");
     }
 
     private boolean isTooSmall(File file) {
@@ -694,30 +897,59 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
     }
 
     private String getMimeType(String filePath) {
-        if (filePath.endsWith(".mp4") || filePath.endsWith(".mkv")) {
+        String lower = filePath.toLowerCase(Locale.ROOT);
+
+        if (lower.endsWith(".mp4") || lower.endsWith(".mkv")) {
             return "video/*";
-        } else if (filePath.endsWith(".mp3") || filePath.endsWith(".wav") || filePath.endsWith(".m4a")) {
+        } else if (lower.endsWith(".mp3") || lower.endsWith(".wav") || lower.endsWith(".m4a")) {
             return "audio/*";
-        } else if (filePath.endsWith(".jpg") || filePath.endsWith(".png")) {
+        } else if (lower.endsWith(".jpg") || lower.endsWith(".png") || lower.endsWith(".jpeg")) {
             return "image/*";
-        } else if (filePath.endsWith(".pdf")) {
+        } else if (lower.endsWith(".pdf")) {
             return "application/pdf";
-        } else if (filePath.endsWith(".doc") || filePath.endsWith(".docx")) {
+        } else if (lower.endsWith(".doc") || lower.endsWith(".docx")) {
             return "application/msword";
-        } else if (filePath.endsWith(".pptx")) {
+        } else if (lower.endsWith(".pptx")) {
             return "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-        } else if (filePath.endsWith(".odt")) {
+        } else if (lower.endsWith(".odt")) {
             return "application/vnd.oasis.opendocument.text";
         }
-        return "/";
+        return "*/*";
     }
 
     @Override
     public void updateSelectionToolbar() {
-        AllFeaturesUtils.updateSelectionToolbar(restoredFiles, binding.selectionToolbar);
+        boolean anySelected = false;
+        for (MediaItem item : restoredFiles) {
+            if (item != null && item.isSelected()) {
+                anySelected = true;
+                break;
+            }
+        }
+
+        binding.selectionToolbar.setVisibility(anySelected ? View.VISIBLE : View.GONE);
+
+        MenuItem restoreItem = binding.selectionToolbar.getMenu().findItem(R.id.restoreSelected);
+        if (restoreItem != null) {
+            restoreItem.setVisible("Deleted".equals(fileType) && anySelected);
+        }
+
+        MenuItem moveItem = binding.selectionToolbar.getMenu().findItem(R.id.moveSelected);
+        if (moveItem != null) {
+            moveItem.setVisible(!"Deleted".equals(fileType) && anySelected);
+        }
+
+        MenuItem deleteItem = binding.selectionToolbar.getMenu().findItem(R.id.deleteSelected);
+        if (deleteItem != null) {
+            deleteItem.setVisible(anySelected);
+        }
+
+        MenuItem selectAllItem = binding.selectionToolbar.getMenu().findItem(R.id.selectAll);
+        if (selectAllItem != null) {
+            selectAllItem.setVisible(true);
+        }
     }
 
-    // --- MODIFIED to fix the compilation error ---
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
@@ -745,7 +977,12 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             return true;
         } else if (id == R.id.action_refresh) {
             Toast.makeText(this, "Refreshing...", Toast.LENGTH_SHORT).show();
-            FileCache.getInstance().clear(fileType);
+
+            // ==========================================================
+            // ✅ FIX 1: Cache clear should use sectionName cache key
+            // ==========================================================
+            FileCache.getInstance().clear(getCacheKey());
+
             loadData();
             return true;
         } else if (id == R.id.hideDuplicates) {
@@ -759,14 +996,9 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             item.setChecked(showPath);
             adapter.setShowPath(showPath);
             return true;
-
         } else if (id == R.id.action_filter) {
             loadFileList();
 
-            // NOTE: The constructor call is reverted to its original signature to fix the compilation error.
-            // This means the 'filterByTextInImage' toggle cannot be controlled from the UI yet.
-            // To fully enable the feature, 'SearchBottomSheet.java' must be updated to accept the new boolean
-            // and its listener must be updated to return the user's choice for that flag.
             SearchBottomSheet bottomSheet = new SearchBottomSheet(
                     this,
                     selectedSearchType,
@@ -775,17 +1007,13 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                     excludedExtensions,
                     fileType,
                     fileNameFilterType,
-                    // The 'filterByTextInImage' parameter and its corresponding lambda parameter are removed to match the original signature.
                     (searchType, caseSensitive, folders, extensions, newFileNameFilterType) -> {
-                        // This is the original listener signature.
                         selectedSearchType = searchType;
                         isCaseSensitive = caseSensitive;
                         excludedFolders = folders;
                         excludedExtensions = extensions;
                         fileNameFilterType = newFileNameFilterType;
-                        // The 'filterByTextInImage' state is NOT updated from the sheet.
 
-                        // Immediately apply all filters with the new settings.
                         filterFiles(currentQuery, excludedFolders, excludedExtensions);
                     }
             );
@@ -807,7 +1035,6 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             baseList = new ArrayList<>(fullMediaItemList);
         }
 
-        // 1. First, apply the "text in image" (OCR) filter if it's active
         List<MediaItem> afterOcrFilterList = new ArrayList<>();
         if (filterByTextInImage) {
             for (MediaItem item : baseList) {
@@ -819,7 +1046,6 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             afterOcrFilterList.addAll(baseList);
         }
 
-        // 2. Next, apply the "filename content" filter on the result of the OCR filter.
         List<MediaItem> nameFilteredList = new ArrayList<>();
         if (!"Both".equals(fileNameFilterType)) {
             for (MediaItem item : afterOcrFilterList) {
@@ -835,7 +1061,6 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
             nameFilteredList.addAll(afterOcrFilterList);
         }
 
-        // 3. Finally, perform the rest of the filtering on the result of the previous steps.
         AllFeaturesUtils.filterFiles(
                 query,
                 excludedFolders,
@@ -867,7 +1092,7 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 restoredFiles,
                 fullMediaItemList,
                 adapter,
-                file -> moveToTrash(file)
+                file -> AllFeaturesUtils.moveToTrash(this, file)
         );
     }
 
@@ -877,18 +1102,28 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 restoredFiles,
                 fullMediaItemList,
                 adapter,
-                file -> moveToTrash(file)
+                file -> AllFeaturesUtils.moveToTrash(this, file)
         );
     }
 
-    private boolean moveToTrash(File file) {
-        File trashDir = new File(Environment.getExternalStorageDirectory(), "_.trashed");
-        if (!trashDir.exists()) trashDir.mkdirs();
-        File destFile = new File(trashDir, file.getName());
-        return file.renameTo(destFile);
+    @Override
+    public void restoreFile(MediaItem item) {
+        boolean restored = AllFeaturesUtils.restoreFromTrash(this, item);
+
+        if (restored) {
+            restoredFiles.remove(item);
+
+            for (int i = fullMediaItemList.size() - 1; i >= 0; i--) {
+                if (fullMediaItemList.get(i).path.equals(item.path)) {
+                    fullMediaItemList.remove(i);
+                }
+            }
+
+            adapter.notifyDataSetChanged();
+            updateSelectionToolbar();
+            FileCache.getInstance().clear("Deleted");
+        }
     }
-
-
 
     private void selectAllFiles(boolean select) {
         AllFeaturesUtils.selectAllFiles(fullMediaItemList, select);
@@ -935,5 +1170,236 @@ public class RestoredFilesActivity extends AppCompatActivity implements ToolbarU
                 this::sortFiles,
                 adapter
         );
+    }
+
+    private boolean copyFile(File source, File dest) {
+        try (InputStream in = new FileInputStream(source);
+             OutputStream out = new FileOutputStream(dest)) {
+
+            byte[] buffer = new byte[1024];
+            int length;
+
+            while ((length = in.read(buffer)) > 0) {
+                out.write(buffer, 0, length);
+            }
+
+            return true;
+
+        } catch (Exception e) {
+            e.printStackTrace();
+            return false;
+        }
+    }
+
+    private void restoreSelectedFiles() {
+        if (!"Deleted".equals(fileType)) {
+            Toast.makeText(this, "Restore available only in Deleted tab", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        ArrayList<MediaItem> toRestore = new ArrayList<>();
+        for (MediaItem item : restoredFiles) {
+            if (item != null && item.isSelected()) {
+                toRestore.add(item);
+            }
+        }
+
+        if (toRestore.isEmpty()) {
+            Toast.makeText(this, "No files selected to restore", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        int restoredCount = 0;
+
+        for (MediaItem item : toRestore) {
+            if (AllFeaturesUtils.restoreFromTrash(this, item)) {
+                restoredCount++;
+                restoredFiles.remove(item);
+
+                for (int i = fullMediaItemList.size() - 1; i >= 0; i--) {
+                    if (fullMediaItemList.get(i).path.equals(item.path)) {
+                        fullMediaItemList.remove(i);
+                    }
+                }
+            }
+        }
+
+        adapter.notifyDataSetChanged();
+        updateSelectionToolbar();
+        FileCache.getInstance().clear("Deleted");
+
+        Toast.makeText(this, restoredCount + " files restored successfully!", Toast.LENGTH_SHORT).show();
+    }
+
+    private void updateRestoreMenuVisibility() {
+        if (binding == null || binding.selectionToolbar == null) return;
+
+        MenuItem restoreItem = binding.selectionToolbar.getMenu().findItem(R.id.restoreSelected);
+        if (restoreItem != null) {
+            restoreItem.setVisible("Deleted".equals(fileType));
+        }
+    }
+
+    private void walkDirectory(File dir, ProgressCallback callback) {
+        File[] list = dir.listFiles();
+        if (list == null) return;
+
+        for (File f : list) {
+            if (f.isDirectory()) {
+                if (!isExcludedFolder(f)) walkDirectory(f, callback);
+            } else {
+                callback.onUpdate(f.getAbsolutePath());
+                analyzeFile(f);
+            }
+        }
+    }
+
+    private void analyzeFile(File file) {
+        String mime = AllFeaturesUtils.getRealMimeType(file);
+
+        if (mime.startsWith("image")) pCount++;
+        else if (mime.startsWith("video")) vCount++;
+        else if (mime.contains("pdf") || mime.contains("msword") || mime.contains("zip")) dCount++;
+        else oCount++;
+
+        // ✅ UPDATED: use extension based dynamic category filter
+        if (isRelevantToCurrentCategory(file.getAbsolutePath())) {
+            fullMediaItemList.add(new MediaItem(file.getName(), file.getAbsolutePath()));
+            runOnUiThread(() -> adapter.notifyDataSetChanged());
+        }
+    }
+
+    interface ProgressCallback {
+        void onUpdate(String path);
+    }
+
+    private void loadMediaStoreData() {
+        Uri queryUri;
+        String selection = null;
+        String[] selectionArgs = null;
+
+        switch (fileType) {
+            case "Photo":
+                queryUri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+                break;
+            case "Video":
+                queryUri = MediaStore.Video.Media.EXTERNAL_CONTENT_URI;
+                break;
+            case "Audio":
+                queryUri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+                break;
+            default:
+                queryUri = MediaStore.Files.getContentUri("external");
+                break;
+        }
+
+        String[] projection = {MediaStore.MediaColumns.DATA, MediaStore.MediaColumns.DISPLAY_NAME};
+
+        try (Cursor cursor = getContentResolver().query(queryUri, projection, selection, selectionArgs, null)) {
+            if (cursor != null) {
+                while (cursor.moveToNext()) {
+                    String path = cursor.getString(0);
+                    String name = cursor.getString(1);
+
+                    // ✅ UPDATED: apply dynamic extension filter
+                    if (isRelevantToCurrentCategory(path)) {
+                        MediaItem item = new MediaItem(name, path);
+                        if (!fullMediaItemList.contains(item)) {
+                            fullMediaItemList.add(item);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e("ScanEngine", "Quick scan failed", e);
+        }
+    }
+
+    private void performHybridScan() {
+        pCount = 0;
+        vCount = 0;
+        dCount = 0;
+        oCount = 0;
+        fullMediaItemList.clear();
+        restoredFiles.clear();
+
+        BottomSheetDialog progressSheet = new BottomSheetDialog(this);
+        LayoutScanProgressBinding sheetBinding = LayoutScanProgressBinding.inflate(getLayoutInflater());
+        progressSheet.setContentView(sheetBinding.getRoot());
+        progressSheet.setCancelable(false);
+        progressSheet.show();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    File trashDir = new File(Environment.getExternalStorageDirectory(), "_.trashed");
+                    if (trashDir.exists()) {
+                        AllFeaturesUtils.walkDirectory(trashDir, fullMediaItemList, fileType, path -> {
+                            updateScanUI(sheetBinding, path);
+                        });
+                    }
+
+                    File root = Environment.getExternalStorageDirectory();
+                    AllFeaturesUtils.walkDirectory(root, fullMediaItemList, fileType, path -> {
+                        updateScanUI(sheetBinding, path);
+                    });
+
+                    runOnUiThread(() -> {
+                        restoredFiles.addAll(fullMediaItemList);
+                        adapter.notifyDataSetChanged();
+                        if (progressSheet.isShowing()) progressSheet.dismiss();
+                        Toast.makeText(RestoredFilesActivity.this, "Scan Complete!", Toast.LENGTH_SHORT).show();
+                    });
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    runOnUiThread(() -> progressSheet.dismiss());
+                }
+            }
+        }).start();
+    }
+
+    private void updateScanUI(LayoutScanProgressBinding binding, String path) {
+        runOnUiThread(() -> {
+            binding.currentPathText.setText(path);
+            binding.countPhotos.setText("Photos: " + pCount);
+        });
+    }
+
+    private ArrayList<MediaItem> fetchPhotosFromDevice() {
+        ArrayList<MediaItem> photoList = new ArrayList<>();
+        Uri uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI;
+
+        String[] projection = {
+                MediaStore.Images.Media.DATA,
+                MediaStore.Images.Media.DISPLAY_NAME
+        };
+
+        try (Cursor cursor = getContentResolver().query(uri, projection, null, null, MediaStore.Images.Media.DATE_MODIFIED + " DESC")) {
+            if (cursor != null) {
+                int pathIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DATA);
+                int nameIndex = cursor.getColumnIndexOrThrow(MediaStore.Images.Media.DISPLAY_NAME);
+
+                while (cursor.moveToNext()) {
+                    String path = cursor.getString(pathIndex);
+                    String name = cursor.getString(nameIndex);
+
+                    if (path != null) {
+                        File file = new File(path);
+                        if (file.exists()) {
+
+                            // ✅ UPDATED: apply dynamic extension filter
+                            if (isRelevantToCurrentCategory(path)) {
+                                photoList.add(new MediaItem(name, path));
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e("PhotoFetch", "Failed to fetch photos", e);
+        }
+        return photoList;
     }
 }

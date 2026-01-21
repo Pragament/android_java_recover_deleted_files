@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/nav_deleted"
+        android:icon="@drawable/ic_recycle"
+        android:title="Deleted" />
+    <item
+        android:id="@+id/nav_recover"
+        android:icon="@drawable/ic_restore"
+        android:title="Recover" />
+    <item
+        android:id="@+id/nav_hidden"
+        android:icon="@drawable/ic_hidden"
+        android:title="Hidden" />
+    <item
+        android:id="@+id/nav_other"
+        android:icon="@drawable/ic_other_files"
+        android:title="Other" />
+    <item
+        android:id="@+id/nav_settings"
+        android:icon="@drawable/ic_settings"
+        android:title="Manage" />
+
+</menu>
